@@ -1,0 +1,6 @@
+{
+  "name": "Quản Lý Thu Chi Mầm Non",
+  "description": "Ứng dụng quản lý thu chi, học phí và thống kê tài chính hàng tháng dành cho trường mầm non theo mẫu chuẩn.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
