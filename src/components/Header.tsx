@@ -18,6 +18,7 @@ import {
 import { SchoolConfig, FamilyConfig, AppMode, HomeThemeColor } from '../types/finance';
 import { KiteLogo } from './KiteLogo';
 import { getThemeConfig, THEME_OPTIONS } from '../utils/themeConfig';
+import { AuthButton } from '../firebase/AuthButton';
 
 export type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'thong_ke';
 
@@ -36,6 +37,8 @@ interface HeaderProps {
   canGoBack?: boolean;
   onGoBack?: () => void;
   onChangeTheme?: (theme: HomeThemeColor) => void;
+  onSyncNow?: () => Promise<void>;
+  isSyncing?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -53,6 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   canGoBack,
   onGoBack,
   onChangeTheme,
+  onSyncNow,
+  isSyncing,
 }) => {
   const isBusiness = mode === 'business';
   const theme = getThemeConfig(familyConfig?.themeColor);
@@ -328,6 +333,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden xs:inline">Thêm Thu / Chi</span>
                 <span className="xs:hidden">Thêm</span>
               </button>
+
+              {/* Google Gmail Sign-in / Cloud Sync Button */}
+              <AuthButton onSyncNow={onSyncNow} isSyncing={isSyncing} />
 
               {/* Settings button */}
               <button

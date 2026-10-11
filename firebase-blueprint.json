@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account information synchronized via Google sign-in",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 256 },
+        "photoURL": { "type": "string", "maxLength": 1024 },
+        "activeMode": { "type": "string", "enum": ["business", "home"] },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId", "email"]
+    },
+    "UserTransaction": {
+      "title": "UserTransaction",
+      "description": "Financial income or expense transaction owned by user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "mode": { "type": "string", "enum": ["business", "home"] },
+        "date": { "type": "string", "maxLength": 10 },
+        "month": { "type": "string", "maxLength": 7 },
+        "type": { "type": "string", "enum": ["thu", "chi"] },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "categoryName": { "type": "string", "maxLength": 256 },
+        "amount": { "type": "number" },
+        "note": { "type": "string", "maxLength": 1000 },
+        "payerOrReceiver": { "type": "string", "maxLength": 256 },
+        "paymentMethod": { "type": "string", "enum": ["tien_mat", "chuyen_khoan", "khac"] },
+        "referenceCode": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "mode", "date", "month", "type", "categoryId", "categoryName", "amount", "paymentMethod", "createdAt"]
+    },
+    "UserCategory": {
+      "title": "UserCategory",
+      "description": "Customizable income or expense category owned by user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "mode": { "type": "string", "enum": ["business", "home"] },
+        "name": { "type": "string", "maxLength": 256 },
+        "type": { "type": "string", "enum": ["thu", "chi"] },
+        "group": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 500 },
+        "monthlyBudget": { "type": "number" }
+      },
+      "required": ["id", "userId", "mode", "name", "type"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "User configuration settings for business and home modes",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "schoolConfig": { "type": "object" },
+        "familyConfig": { "type": "object" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Public user profile and active preference"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "UserTransaction",
+      "description": "Transactions belonging to the user"
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": "UserCategory",
+      "description": "Categories customized by the user"
+    },
+    "/users/{userId}/settings/current": {
+      "schema": "UserSettings",
+      "description": "User settings configuration"
+    }
+  }
+}

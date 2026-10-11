@@ -54,6 +54,20 @@ import {
   exportExpenseOnlyExcel,
 } from './utils/excelExport';
 
+import { useAuth } from './firebase/AuthContext';
+import {
+  syncUserProfile,
+  subscribeUserTransactions,
+  subscribeUserCategories,
+  subscribeUserSettings,
+  saveUserTransactionToFirestore,
+  deleteUserTransactionFromFirestore,
+  saveUserCategoryToFirestore,
+  deleteUserCategoryFromFirestore,
+  saveUserSettingsToFirestore,
+  initializeUserCloudDataIfEmpty,
+} from './firebase/firestoreService';
+
 type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'thong_ke';
 
 interface NavState {
@@ -62,6 +76,9 @@ interface NavState {
 }
 
 export default function App() {
+  const { user } = useAuth();
+  const [isSyncing, setIsSyncing] = useState(false);
+
   // 1. Dual Mode System: 'business' (Trường học) | 'home' (Gia đình)
   const [mode, setModeState] = useState<AppMode>(() => loadActiveMode());
   const isBusiness = mode === 'business';
@@ -75,6 +92,111 @@ export default function App() {
   const [homeTransactions, setHomeTransactions] = useState<Transaction[]>(() => loadHomeTransactions());
   const [familyConfig, setFamilyConfig] = useState<FamilyConfig>(() => loadHomeConfig());
   const [homeCategories, setHomeCategories] = useState<CategoryItem[]>(() => loadHomeCategories());
+
+  // Real-time synchronization when user is signed in with Google
+  useEffect(() => {
+    if (!user) return;
+
+    // Save profile
+    syncUserProfile(user.uid, {
+      email: user.email || '',
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      activeMode: mode,
+    });
+
+    // Check & seed cloud data from current local state if cloud database is empty
+    initializeUserCloudDataIfEmpty(user.uid, {
+      transactions: bizTransactions,
+      homeTransactions: homeTransactions,
+      categories: bizCategories,
+      homeCategories: homeCategories,
+      schoolConfig: schoolConfig,
+      familyConfig: familyConfig,
+      activeMode: mode,
+    });
+
+    // Subscribe to transactions real-time
+    const unsubTx = subscribeUserTransactions(user.uid, (cloudTxs) => {
+      // Split into business and home transactions based on recorded mode or ID
+      const bizList = cloudTxs.filter((t) => t.mode !== 'home' && !t.id.includes('home'));
+      const homeList = cloudTxs.filter((t) => t.mode === 'home' || t.id.includes('home'));
+      
+      if (bizList.length > 0) {
+        setBizTransactions(bizList);
+        saveTransactions(bizList);
+      }
+      if (homeList.length > 0) {
+        setHomeTransactions(homeList);
+        saveHomeTransactions(homeList);
+      }
+    });
+
+    // Subscribe to categories real-time
+    const unsubCat = subscribeUserCategories(user.uid, (cloudCats) => {
+      if (cloudCats.length > 0) {
+        const bizCats = cloudCats.filter((c) => c.mode !== 'home');
+        const homeCats = cloudCats.filter((c) => c.mode === 'home');
+        if (bizCats.length > 0) {
+          setBizCategories(bizCats);
+          saveCategories(bizCats);
+        }
+        if (homeCats.length > 0) {
+          setHomeCategories(homeCats);
+          saveHomeCategories(homeCats);
+        }
+      }
+    });
+
+    // Subscribe to settings
+    const unsubSettings = subscribeUserSettings(user.uid, (cloudSettings) => {
+      if (cloudSettings.schoolConfig) {
+        setSchoolConfig(cloudSettings.schoolConfig);
+        saveSchoolConfig(cloudSettings.schoolConfig);
+      }
+      if (cloudSettings.familyConfig) {
+        setFamilyConfig(cloudSettings.familyConfig);
+        saveHomeConfig(cloudSettings.familyConfig);
+      }
+      if (cloudSettings.activeMode) {
+        setModeState(cloudSettings.activeMode);
+        saveActiveMode(cloudSettings.activeMode);
+      }
+    });
+
+    return () => {
+      unsubTx();
+      unsubCat();
+      unsubSettings();
+    };
+  }, [user]);
+
+  // Manual sync trigger
+  const handleSyncNow = async () => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      await initializeUserCloudDataIfEmpty(user.uid, {
+        transactions: bizTransactions,
+        homeTransactions: homeTransactions,
+        categories: bizCategories,
+        homeCategories: homeCategories,
+        schoolConfig: schoolConfig,
+        familyConfig: familyConfig,
+        activeMode: mode,
+      });
+      // Save current settings
+      await saveUserSettingsToFirestore(user.uid, {
+        schoolConfig,
+        familyConfig,
+        activeMode: mode,
+      });
+    } catch (err) {
+      console.error('Sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // 4. Active pointers depending on mode
   const transactions = isBusiness ? bizTransactions : homeTransactions;
@@ -111,6 +233,9 @@ export default function App() {
     setModeState(newMode);
     saveActiveMode(newMode);
     setCategoryFilter('all');
+    if (user) {
+      saveUserSettingsToFirestore(user.uid, { activeMode: newMode });
+    }
   };
 
   // Change theme color for family mode
@@ -118,6 +243,9 @@ export default function App() {
     const updated = { ...familyConfig, themeColor: color };
     setFamilyConfig(updated);
     saveHomeConfig(updated);
+    if (user) {
+      saveUserSettingsToFirestore(user.uid, { familyConfig: updated });
+    }
   };
 
   // Modal controls
@@ -213,17 +341,27 @@ export default function App() {
   // ================= CATEGORY CRUD HANDLERS (SEPARATED BY MODE) =================
   const handleAddCategory = (newCat: Omit<CategoryItem, 'id'>) => {
     const id = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const item: CategoryItem = { ...newCat, id };
     if (isBusiness) {
-      setBizCategories((prev) => [...prev, { ...newCat, id }]);
+      setBizCategories((prev) => [...prev, item]);
+      if (user) saveUserCategoryToFirestore(user.uid, item, 'business');
     } else {
-      setHomeCategories((prev) => [...prev, { ...newCat, id }]);
+      setHomeCategories((prev) => [...prev, item]);
+      if (user) saveUserCategoryToFirestore(user.uid, item, 'home');
     }
   };
 
   const handleUpdateCategory = (id: string, updated: Partial<CategoryItem>) => {
     if (isBusiness) {
       setBizCategories((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, ...updated } : c))
+        prev.map((c) => {
+          if (c.id === id) {
+            const merged = { ...c, ...updated };
+            if (user) saveUserCategoryToFirestore(user.uid, merged, 'business');
+            return merged;
+          }
+          return c;
+        })
       );
       if (updated.name) {
         const newName = updated.name;
@@ -233,7 +371,14 @@ export default function App() {
       }
     } else {
       setHomeCategories((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, ...updated } : c))
+        prev.map((c) => {
+          if (c.id === id) {
+            const merged = { ...c, ...updated };
+            if (user) saveUserCategoryToFirestore(user.uid, merged, 'home');
+            return merged;
+          }
+          return c;
+        })
       );
       if (updated.name) {
         const newName = updated.name;
@@ -246,9 +391,20 @@ export default function App() {
 
   const handleDeleteCategory = (id: string) => {
     if (isBusiness) {
-      setBizCategories((prev) => prev.filter((c) => c.id !== id));
+      setBizCategories((prev) => {
+        const next = prev.filter((c) => c.id !== id);
+        saveCategories(next);
+        return next;
+      });
     } else {
-      setHomeCategories((prev) => prev.filter((c) => c.id !== id));
+      setHomeCategories((prev) => {
+        const next = prev.filter((c) => c.id !== id);
+        saveHomeCategories(next);
+        return next;
+      });
+    }
+    if (user) {
+      deleteUserCategoryFromFirestore(user.uid, id);
     }
   };
 
@@ -269,38 +425,77 @@ export default function App() {
   ) => {
     if (isBusiness) {
       if (existingId) {
-        setBizTransactions((prev) =>
-          prev.map((t) => (t.id === existingId ? { ...t, ...data } : t))
-        );
+        setBizTransactions((prev) => {
+          const next = prev.map((t) => {
+            if (t.id === existingId) {
+              const updated = { ...t, ...data };
+              if (user) saveUserTransactionToFirestore(user.uid, updated, 'business');
+              return updated;
+            }
+            return t;
+          });
+          saveTransactions(next);
+          return next;
+        });
       } else {
         const newTx: Transaction = {
           ...data,
           id: `tx-biz-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           createdAt: Date.now(),
         };
-        setBizTransactions((prev) => [newTx, ...prev]);
+        setBizTransactions((prev) => {
+          const next = [newTx, ...prev];
+          saveTransactions(next);
+          return next;
+        });
+        if (user) saveUserTransactionToFirestore(user.uid, newTx, 'business');
       }
     } else {
       if (existingId) {
-        setHomeTransactions((prev) =>
-          prev.map((t) => (t.id === existingId ? { ...t, ...data } : t))
-        );
+        setHomeTransactions((prev) => {
+          const next = prev.map((t) => {
+            if (t.id === existingId) {
+              const updated = { ...t, ...data };
+              if (user) saveUserTransactionToFirestore(user.uid, updated, 'home');
+              return updated;
+            }
+            return t;
+          });
+          saveHomeTransactions(next);
+          return next;
+        });
       } else {
         const newTx: Transaction = {
           ...data,
           id: `tx-home-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           createdAt: Date.now(),
         };
-        setHomeTransactions((prev) => [newTx, ...prev]);
+        setHomeTransactions((prev) => {
+          const next = [newTx, ...prev];
+          saveHomeTransactions(next);
+          return next;
+        });
+        if (user) saveUserTransactionToFirestore(user.uid, newTx, 'home');
       }
     }
   };
 
   const handleDeleteTransaction = (id: string) => {
     if (isBusiness) {
-      setBizTransactions((prev) => prev.filter((t) => t.id !== id));
+      setBizTransactions((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        saveTransactions(next);
+        return next;
+      });
     } else {
-      setHomeTransactions((prev) => prev.filter((t) => t.id !== id));
+      setHomeTransactions((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        saveHomeTransactions(next);
+        return next;
+      });
+    }
+    if (user) {
+      deleteUserTransactionFromFirestore(user.uid, id);
     }
   };
 
@@ -446,6 +641,8 @@ export default function App() {
         canGoBack={navHistory.length > 0}
         onGoBack={handleGoBack}
         onChangeTheme={handleChangeTheme}
+        onSyncNow={handleSyncNow}
+        isSyncing={isSyncing}
       />
 
       {/* Main Content Viewport */}
@@ -591,8 +788,14 @@ export default function App() {
         mode={mode}
         schoolConfig={schoolConfig}
         familyConfig={familyConfig}
-        onSaveSchoolConfig={setSchoolConfig}
-        onSaveFamilyConfig={setFamilyConfig}
+        onSaveSchoolConfig={(cfg) => {
+          setSchoolConfig(cfg);
+          if (user) saveUserSettingsToFirestore(user.uid, { schoolConfig: cfg });
+        }}
+        onSaveFamilyConfig={(cfg) => {
+          setFamilyConfig(cfg);
+          if (user) saveUserSettingsToFirestore(user.uid, { familyConfig: cfg });
+        }}
         onDataReloaded={handleDataReloaded}
       />
 

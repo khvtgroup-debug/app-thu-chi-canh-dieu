@@ -94,10 +94,16 @@ export function loadCategories(): CategoryItem[] {
     const parsed: CategoryItem[] = JSON.parse(raw);
     // Enrich with default monthlyBudget if not set
     const defaultMap = new Map(ALL_CATEGORIES.map((c) => [c.id, c.monthlyBudget]));
-    return parsed.map((cat) => ({
-      ...cat,
-      monthlyBudget: cat.monthlyBudget !== undefined ? cat.monthlyBudget : defaultMap.get(cat.id),
-    }));
+    return parsed.map((cat) => {
+      const budget = cat.monthlyBudget !== undefined ? cat.monthlyBudget : defaultMap.get(cat.id);
+      const res: CategoryItem = { ...cat };
+      if (typeof budget === 'number') {
+        res.monthlyBudget = budget;
+      } else {
+        delete res.monthlyBudget;
+      }
+      return res;
+    });
   } catch (err) {
     console.error('Error loading categories', err);
     return ALL_CATEGORIES;
@@ -176,10 +182,16 @@ export function loadHomeCategories(): CategoryItem[] {
     }
     const parsed: CategoryItem[] = JSON.parse(raw);
     const defaultMap = new Map(HOME_ALL_CATEGORIES.map((c) => [c.id, c.monthlyBudget]));
-    return parsed.map((cat) => ({
-      ...cat,
-      monthlyBudget: cat.monthlyBudget !== undefined ? cat.monthlyBudget : defaultMap.get(cat.id),
-    }));
+    return parsed.map((cat) => {
+      const budget = cat.monthlyBudget !== undefined ? cat.monthlyBudget : defaultMap.get(cat.id);
+      const res: CategoryItem = { ...cat };
+      if (typeof budget === 'number') {
+        res.monthlyBudget = budget;
+      } else {
+        delete res.monthlyBudget;
+      }
+      return res;
+    });
   } catch (err) {
     console.error('Error loading home categories', err);
     return HOME_ALL_CATEGORIES;
