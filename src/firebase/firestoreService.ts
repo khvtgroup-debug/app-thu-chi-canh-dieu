@@ -263,70 +263,128 @@ export async function initializeUserCloudDataIfEmpty(
     // Check if transactions exist
     const snap = await getDocs(collection(db, 'users', userId, 'transactions'));
     if (snap.empty) {
-      let batch = writeBatch(db);
-      let opsCount = 0;
-
-      const commitIfNeeded = async () => {
-        if (opsCount >= 400) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opsCount = 0;
-        }
-      };
-
-      // Business transactions
-      for (const tx of localData.transactions) {
-        const txRef = doc(db, 'users', userId, 'transactions', tx.id);
-        batch.set(txRef, cleanDataForFirestore({ ...tx, userId, mode: 'business' }));
-        opsCount++;
-        await commitIfNeeded();
-      }
-
-      // Home transactions
-      for (const tx of localData.homeTransactions) {
-        const txRef = doc(db, 'users', userId, 'transactions', tx.id);
-        batch.set(txRef, cleanDataForFirestore({ ...tx, userId, mode: 'home' }));
-        opsCount++;
-        await commitIfNeeded();
-      }
-
-      // Business categories
-      for (const cat of localData.categories) {
-        const catRef = doc(db, 'users', userId, 'categories', cat.id);
-        batch.set(catRef, cleanDataForFirestore({ ...cat, userId, mode: 'business' }));
-        opsCount++;
-        await commitIfNeeded();
-      }
-
-      // Home categories
-      for (const cat of localData.homeCategories) {
-        const catRef = doc(db, 'users', userId, 'categories', cat.id);
-        batch.set(catRef, cleanDataForFirestore({ ...cat, userId, mode: 'home' }));
-        opsCount++;
-        await commitIfNeeded();
-      }
-
-      // Settings
-      const settingsRef = doc(db, 'users', userId, 'settings', 'current');
-      batch.set(
-        settingsRef,
-        cleanDataForFirestore({
-          userId,
-          schoolConfig: localData.schoolConfig,
-          familyConfig: localData.familyConfig,
-          activeMode: localData.activeMode,
-          updatedAt: Date.now(),
-        })
-      );
-      opsCount++;
-
-      if (opsCount > 0) {
-        await batch.commit();
-      }
-      return true;
+      return await forceSyncLocalToCloud(userId, localData);
     }
     return false;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Force overwrite or sync local data to Cloud Firestore for this user.
+ */
+export async function forceSyncLocalToCloud(
+  userId: string,
+  localData: {
+    transactions: Transaction[];
+    homeTransactions: Transaction[];
+    categories: CategoryItem[];
+    homeCategories: CategoryItem[];
+    schoolConfig: SchoolConfig;
+    familyConfig: FamilyConfig;
+    activeMode?: AppMode;
+  }
+) {
+  const path = `users/${userId}`;
+  try {
+    let batch = writeBatch(db);
+    let opsCount = 0;
+
+    const commitIfNeeded = async () => {
+      if (opsCount >= 400) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opsCount = 0;
+      }
+    };
+
+    // Business transactions
+    for (const tx of localData.transactions) {
+      const txRef = doc(db, 'users', userId, 'transactions', tx.id);
+      batch.set(txRef, cleanDataForFirestore({ ...tx, userId, mode: 'business' }));
+      opsCount++;
+      await commitIfNeeded();
+    }
+
+    // Home transactions
+    for (const tx of localData.homeTransactions) {
+      const txRef = doc(db, 'users', userId, 'transactions', tx.id);
+      batch.set(txRef, cleanDataForFirestore({ ...tx, userId, mode: 'home' }));
+      opsCount++;
+      await commitIfNeeded();
+    }
+
+    // Business categories
+    for (const cat of localData.categories) {
+      const catRef = doc(db, 'users', userId, 'categories', cat.id);
+      batch.set(catRef, cleanDataForFirestore({ ...cat, userId, mode: 'business' }));
+      opsCount++;
+      await commitIfNeeded();
+    }
+
+    // Home categories
+    for (const cat of localData.homeCategories) {
+      const catRef = doc(db, 'users', userId, 'categories', cat.id);
+      batch.set(catRef, cleanDataForFirestore({ ...cat, userId, mode: 'home' }));
+      opsCount++;
+      await commitIfNeeded();
+    }
+
+    // Settings
+    const settingsRef = doc(db, 'users', userId, 'settings', 'current');
+    batch.set(
+      settingsRef,
+      cleanDataForFirestore({
+        userId,
+        schoolConfig: localData.schoolConfig,
+        familyConfig: localData.familyConfig,
+        activeMode: localData.activeMode || 'business',
+        updatedAt: Date.now(),
+      }),
+      { merge: true }
+    );
+    opsCount++;
+
+    if (opsCount > 0) {
+      await batch.commit();
+    }
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    return false;
+  }
+}
+
+/**
+ * Fetch all transactions once for immediate reload/verification.
+ */
+export async function fetchUserTransactionsOnce(userId: string) {
+  const path = `users/${userId}/transactions`;
+  try {
+    const snap = await getDocs(collection(db, 'users', userId, 'transactions'));
+    const list: (Transaction & { mode?: AppMode })[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      list.push({
+        id: data.id || docSnap.id,
+        date: data.date,
+        month: data.month,
+        type: data.type,
+        categoryId: data.categoryId,
+        categoryName: data.categoryName,
+        amount: Number(data.amount) || 0,
+        note: data.note || '',
+        payerOrReceiver: data.payerOrReceiver || '',
+        paymentMethod: data.paymentMethod || 'tien_mat',
+        referenceCode: data.referenceCode || '',
+        createdAt: data.createdAt || Date.now(),
+        mode: data.mode || (docSnap.id.includes('home') ? 'home' : 'business'),
+      });
+    });
+    return list;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
   }
 }

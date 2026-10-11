@@ -17,6 +17,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { CategoryManagerModal } from './components/CategoryManagerModal';
 import { CategoryQuickModal } from './components/CategoryQuickModal';
 import { ImportExcelModal } from './components/ImportExcelModal';
+import { AIAssistantChatModal } from './components/AIAssistantChatModal';
+import { Sparkles } from 'lucide-react';
 
 import {
   Transaction,
@@ -66,6 +68,7 @@ import {
   deleteUserCategoryFromFirestore,
   saveUserSettingsToFirestore,
   initializeUserCloudDataIfEmpty,
+  forceSyncLocalToCloud,
 } from './firebase/firestoreService';
 
 type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'thong_ke';
@@ -122,11 +125,10 @@ export default function App() {
       const bizList = cloudTxs.filter((t) => t.mode !== 'home' && !t.id.includes('home'));
       const homeList = cloudTxs.filter((t) => t.mode === 'home' || t.id.includes('home'));
       
-      if (bizList.length > 0) {
+      // If cloud has transactions, update both states so all browsers see identical records
+      if (cloudTxs.length > 0) {
         setBizTransactions(bizList);
         saveTransactions(bizList);
-      }
-      if (homeList.length > 0) {
         setHomeTransactions(homeList);
         saveHomeTransactions(homeList);
       }
@@ -137,14 +139,10 @@ export default function App() {
       if (cloudCats.length > 0) {
         const bizCats = cloudCats.filter((c) => c.mode !== 'home');
         const homeCats = cloudCats.filter((c) => c.mode === 'home');
-        if (bizCats.length > 0) {
-          setBizCategories(bizCats);
-          saveCategories(bizCats);
-        }
-        if (homeCats.length > 0) {
-          setHomeCategories(homeCats);
-          saveHomeCategories(homeCats);
-        }
+        setBizCategories(bizCats);
+        saveCategories(bizCats);
+        setHomeCategories(homeCats);
+        saveHomeCategories(homeCats);
       }
     });
 
@@ -171,24 +169,18 @@ export default function App() {
     };
   }, [user]);
 
-  // Manual sync trigger
+  // Manual sync trigger - forces complete synchronization of current data to cloud
   const handleSyncNow = async () => {
     if (!user) return;
     setIsSyncing(true);
     try {
-      await initializeUserCloudDataIfEmpty(user.uid, {
+      await forceSyncLocalToCloud(user.uid, {
         transactions: bizTransactions,
         homeTransactions: homeTransactions,
         categories: bizCategories,
         homeCategories: homeCategories,
         schoolConfig: schoolConfig,
         familyConfig: familyConfig,
-        activeMode: mode,
-      });
-      // Save current settings
-      await saveUserSettingsToFirestore(user.uid, {
-        schoolConfig,
-        familyConfig,
         activeMode: mode,
       });
     } catch (err) {
@@ -255,6 +247,7 @@ export default function App() {
   const [defaultTxType, setDefaultTxType] = useState<TransactionType>('chi');
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isImportExcelOpen, setIsImportExcelOpen] = useState(false);
   const [importInitialType, setImportInitialType] = useState<'all' | 'thu' | 'chi'>('all');
@@ -343,12 +336,21 @@ export default function App() {
     const id = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
     const item: CategoryItem = { ...newCat, id };
     if (isBusiness) {
-      setBizCategories((prev) => [...prev, item]);
+      setBizCategories((prev) => {
+        const next = [...prev, item];
+        saveCategories(next);
+        return next;
+      });
       if (user) saveUserCategoryToFirestore(user.uid, item, 'business');
     } else {
-      setHomeCategories((prev) => [...prev, item]);
+      setHomeCategories((prev) => {
+        const next = [...prev, item];
+        saveHomeCategories(next);
+        return next;
+      });
       if (user) saveUserCategoryToFirestore(user.uid, item, 'home');
     }
+    return item;
   };
 
   const handleUpdateCategory = (id: string, updated: Partial<CategoryItem>) => {
@@ -412,9 +414,15 @@ export default function App() {
     if (isBusiness) {
       setBizCategories(ALL_CATEGORIES);
       saveCategories(ALL_CATEGORIES);
+      if (user) {
+        ALL_CATEGORIES.forEach((c) => saveUserCategoryToFirestore(user.uid, c, 'business'));
+      }
     } else {
       setHomeCategories(HOME_ALL_CATEGORIES);
       saveHomeCategories(HOME_ALL_CATEGORIES);
+      if (user) {
+        HOME_ALL_CATEGORIES.forEach((c) => saveUserCategoryToFirestore(user.uid, c, 'home'));
+      }
     }
   };
 
@@ -594,6 +602,12 @@ export default function App() {
         setHomeTransactions((prev) => [...generated, ...prev]);
       }
     }
+
+    if (user) {
+      for (const tx of generated) {
+        saveUserTransactionToFirestore(user.uid, tx, isBusiness ? 'business' : 'home');
+      }
+    }
   };
 
   const handlePrintMonthReport = () => {
@@ -612,13 +626,33 @@ export default function App() {
   };
 
   const handleDataReloaded = () => {
-    setBizTransactions(loadTransactions());
-    setSchoolConfig(loadSchoolConfig());
-    setBizCategories(loadCategories());
-    setHomeTransactions(loadHomeTransactions());
-    setFamilyConfig(loadHomeConfig());
-    setHomeCategories(loadHomeCategories());
-    setModeState(loadActiveMode());
+    const loadedBizTxs = loadTransactions();
+    const loadedSchoolCfg = loadSchoolConfig();
+    const loadedBizCats = loadCategories();
+    const loadedHomeTxs = loadHomeTransactions();
+    const loadedFamilyCfg = loadHomeConfig();
+    const loadedHomeCats = loadHomeCategories();
+    const loadedMode = loadActiveMode();
+
+    setBizTransactions(loadedBizTxs);
+    setSchoolConfig(loadedSchoolCfg);
+    setBizCategories(loadedBizCats);
+    setHomeTransactions(loadedHomeTxs);
+    setFamilyConfig(loadedFamilyCfg);
+    setHomeCategories(loadedHomeCats);
+    setModeState(loadedMode);
+
+    if (user) {
+      forceSyncLocalToCloud(user.uid, {
+        transactions: loadedBizTxs,
+        homeTransactions: loadedHomeTxs,
+        categories: loadedBizCats,
+        homeCategories: loadedHomeCats,
+        schoolConfig: loadedSchoolCfg,
+        familyConfig: loadedFamilyCfg,
+        activeMode: loadedMode,
+      });
+    }
   };
 
   const currentYear = parseInt(currentMonth.split('-')[0], 10) || new Date().getFullYear();
@@ -636,6 +670,7 @@ export default function App() {
         onExportCSV={handleExportCSV}
         onPrintMonthReport={handlePrintMonthReport}
         onOpenCategoryManager={() => setIsCategoryModalOpen(true)}
+        onOpenAIAssistant={() => setIsAIAssistantOpen(true)}
         schoolConfig={schoolConfig}
         familyConfig={familyConfig}
         canGoBack={navHistory.length > 0}
@@ -810,6 +845,44 @@ export default function App() {
           initialType={importInitialType}
         />
       )}
+
+      {/* Floating Action Button: Trợ Lý AI Thu Chi */}
+      <button
+        onClick={() => setIsAIAssistantOpen(true)}
+        title="Trợ lý AI hỗ trợ nhập thu chi bằng tiếng Việt"
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-sm rounded-full shadow-xl hover:shadow-2xl border-2 border-emerald-300/60 active:scale-95 transition-all group cursor-pointer print:hidden"
+      >
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-400"></span>
+        </span>
+        <Sparkles className="w-5 h-5 text-amber-300 group-hover:rotate-12 transition-transform" />
+        <span className="hidden sm:inline font-bold">Trợ Lý AI Thu Chi</span>
+        <span className="sm:hidden font-bold">AI Thu Chi</span>
+      </button>
+
+      {/* MODAL: Trợ Lý AI Chatbox Nhập Thu Chi */}
+      <AIAssistantChatModal
+        isOpen={isAIAssistantOpen}
+        onClose={() => setIsAIAssistantOpen(false)}
+        mode={mode}
+        currentCategories={categories}
+        onSaveTransaction={handleSaveTransaction}
+        onAddCategory={handleAddCategory}
+        onOpenDetailedModal={(prefilled) => {
+          if (prefilled.type) setDefaultTxType(prefilled.type);
+          if (prefilled.categoryId) {
+            const found = categories.find((c) => c.id === prefilled.categoryId);
+            if (found) setDefaultCategory(found);
+          }
+          setEditingTx(prefilled.id ? (prefilled as Transaction) : null);
+          setIsTxModalOpen(true);
+        }}
+        currentMonthSummary={{
+          totalRevenue,
+          totalExpense,
+        }}
+      />
     </div>
   );
 }

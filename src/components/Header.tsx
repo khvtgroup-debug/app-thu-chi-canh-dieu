@@ -14,6 +14,7 @@ import {
   Building2,
   Home,
   Palette,
+  Sparkles,
 } from 'lucide-react';
 import { SchoolConfig, FamilyConfig, AppMode, HomeThemeColor } from '../types/finance';
 import { KiteLogo } from './KiteLogo';
@@ -32,6 +33,7 @@ interface HeaderProps {
   onExportCSV: () => void;
   onPrintMonthReport: () => void;
   onOpenCategoryManager: () => void;
+  onOpenAIAssistant?: () => void;
   schoolConfig: SchoolConfig;
   familyConfig: FamilyConfig;
   canGoBack?: boolean;
@@ -51,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   onExportCSV,
   onPrintMonthReport,
   onOpenCategoryManager,
+  onOpenAIAssistant,
   schoolConfig,
   familyConfig,
   canGoBack,
@@ -319,6 +322,19 @@ export const Header: React.FC<HeaderProps> = ({
                 <FileSpreadsheet className={`w-3.5 h-3.5 ${isBusiness ? 'text-amber-700' : theme.accentText}`} />
                 <span className="hidden md:inline">Xuất Excel</span>
               </button>
+
+              {/* AI Assistant Chat Trigger */}
+              {onOpenAIAssistant && (
+                <button
+                  onClick={onOpenAIAssistant}
+                  title="Mở Trợ lý AI nhập thu chi bằng tiếng Việt"
+                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 rounded-lg shadow-2xs hover:shadow-sm transition-all whitespace-nowrap cursor-pointer active:scale-95 border border-emerald-500/30"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                  <span className="hidden xs:inline">Trợ Lý AI</span>
+                  <span className="xs:hidden">AI</span>
+                </button>
+              )}
 
               {/* Primary Action Button (+) */}
               <button

@@ -11,6 +11,7 @@ export const AuthButton: React.FC<AuthButtonProps> = ({ onSyncNow, isSyncing = f
   const { user, loading, login, logout, isOnline } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +43,18 @@ export const AuthButton: React.FC<AuthButtonProps> = ({ onSyncNow, isSyncing = f
     try {
       await logout();
       setIsOpen(false);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleTriggerSync = async () => {
+    if (!onSyncNow) return;
+    setSyncSuccessMsg(null);
+    try {
+      await onSyncNow();
+      setSyncSuccessMsg('Đã đẩy toàn bộ dữ liệu lên Cloud thành công! Trình duyệt khác sẽ thấy ngay.');
+      setTimeout(() => setSyncSuccessMsg(null), 4000);
     } catch (err) {
       console.error(err);
     }
@@ -88,18 +101,23 @@ export const AuthButton: React.FC<AuthButtonProps> = ({ onSyncNow, isSyncing = f
         </button>
 
         {isOpen && (
-          <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-3 z-50 text-xs animate-in fade-in duration-100">
+          <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 p-3.5 z-50 text-xs animate-in fade-in duration-100">
             <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
               <Cloud className="w-4 h-4 text-sky-600" />
               <div>
-                <p className="font-bold text-slate-800">Đồng bộ đám mây</p>
-                <p className="text-[11px] text-slate-500">Xem và sửa trên máy tính & điện thoại</p>
+                <p className="font-bold text-slate-800">Đồng bộ đám mây (Firestore)</p>
+                <p className="text-[11px] text-slate-500">Xem và sửa trên nhiều thiết bị & trình duyệt</p>
               </div>
             </div>
 
-            <p className="text-slate-600 mb-3 text-[11px] leading-relaxed">
-              Đăng nhập bằng tài khoản Google để toàn bộ thu chi, danh mục, cài đặt được lưu an toàn trên Cloud Firestore.
-            </p>
+            <div className="bg-amber-50 border border-amber-200/80 rounded-lg p-2.5 mb-3 text-[11px] text-amber-800 leading-relaxed">
+              <div className="font-bold text-amber-900 flex items-center gap-1 mb-1">
+                <span>⚠️ Trình duyệt này chưa đăng nhập:</span>
+              </div>
+              <p>
+                Dữ liệu hiện chỉ lưu trong bộ nhớ máy này. Để đồng bộ cùng tài khoản trên 2 trình duyệt hoặc điện thoại, bạn cần bấm <b>"Tiếp tục với Gmail"</b> bên dưới.
+              </p>
+            </div>
 
             {errorMsg && (
               <div className="mb-2 p-2 bg-red-50 text-red-600 rounded-md text-[11px] flex items-center gap-1.5">
@@ -160,7 +178,7 @@ export const AuthButton: React.FC<AuthButtonProps> = ({ onSyncNow, isSyncing = f
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 p-3.5 z-50 text-xs animate-in fade-in duration-100">
+        <div className="absolute right-0 mt-2 w-84 bg-white rounded-xl shadow-xl border border-slate-200 p-3.5 z-50 text-xs animate-in fade-in duration-100">
           <div className="flex items-start gap-2.5 mb-3 pb-3 border-b border-slate-100">
             {user.photoURL ? (
               <img
@@ -192,16 +210,32 @@ export const AuthButton: React.FC<AuthButtonProps> = ({ onSyncNow, isSyncing = f
               </span>
             </div>
 
+            {/* Instruction box explaining why 2 browsers need to be logged into the same account */}
+            <div className="bg-sky-50 border border-sky-200/80 rounded-lg p-2.5 text-[11px] text-sky-900 leading-relaxed">
+              <div className="font-semibold text-sky-800 flex items-center gap-1 mb-1">
+                <Cloud className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                <span>Cách đồng bộ sang máy/trình duyệt thứ 2:</span>
+              </div>
+              <p className="text-slate-600">
+                Mở link app trên trình duyệt thứ 2, bấm <b>"Đăng nhập Gmail"</b> và chọn cùng tài khoản <b>{user.email}</b>. Toàn bộ dữ liệu sẽ tự động xuất hiện!
+              </p>
+            </div>
+
+            {syncSuccessMsg && (
+              <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-md text-[11px] flex items-center gap-1.5 animate-in fade-in">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                <span>{syncSuccessMsg}</span>
+              </div>
+            )}
+
             {onSyncNow && (
               <button
-                onClick={async () => {
-                  if (onSyncNow) await onSyncNow();
-                }}
+                onClick={handleTriggerSync}
                 disabled={isSyncing}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-amber-600' : ''}`} />
-                <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ dữ liệu ngay'}</span>
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Đang đẩy dữ liệu lên Cloud...' : 'Đẩy toàn bộ dữ liệu máy này lên Cloud'}</span>
               </button>
             )}
           </div>
