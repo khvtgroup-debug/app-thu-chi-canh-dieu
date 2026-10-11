@@ -23,6 +23,8 @@ import {
   ChevronRight,
   Upload,
   FileDown,
+  Building2,
+  Table,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -36,11 +38,9 @@ import {
 } from 'recharts';
 import {
   Transaction,
-  StudentTuition,
   CategoryItem,
   SchoolConfig,
   FamilyConfig,
-  PaymentMethod,
   AppMode,
   HomeThemeColor,
 } from '../types/finance';
@@ -51,13 +51,12 @@ interface DashboardViewProps {
   currentMonth: string;
   transactions: Transaction[];
   currentMonthTransactions: Transaction[];
-  students: StudentTuition[];
   categories: CategoryItem[];
   schoolConfig: SchoolConfig;
   familyConfig?: FamilyConfig;
   mode?: AppMode;
   onNavigateToTab: (
-    tab: 'bang_tinh' | 'giao_dich' | 'hoc_phi' | 'thong_ke',
+    tab: 'bang_tinh' | 'giao_dich' | 'thong_ke',
     categoryFilter?: string
   ) => void;
   onOpenNewTx: () => void;
@@ -66,7 +65,6 @@ interface DashboardViewProps {
   onExportCSV: () => void;
   onPrintMonthReport: () => void;
   onOpenSettings: () => void;
-  onConfirmTuitionPayment: (studentId: string, method: PaymentMethod, date: string) => void;
   onOpenImportExcel?: (type?: 'all' | 'thu' | 'chi') => void;
   onExportExcel?: (type?: 'all' | 'thu' | 'chi') => void;
   onChangeTheme?: (theme: HomeThemeColor) => void;
@@ -76,7 +74,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   currentMonth,
   transactions,
   currentMonthTransactions,
-  students,
   categories,
   schoolConfig,
   familyConfig,
@@ -88,7 +85,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onExportCSV,
   onPrintMonthReport,
   onOpenSettings,
-  onConfirmTuitionPayment,
   onOpenImportExcel,
   onExportExcel,
   onChangeTheme,
@@ -148,33 +144,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [currentMonthTransactions]);
 
-  // 2. Student Tuition Stats for Current Month
-  const tuitionStats = useMemo(() => {
-    const monthStudents = students.filter((s) => s.month === currentMonth);
-    const totalStudents = monthStudents.length;
-    const paidList = monthStudents.filter((s) => s.isPaid);
-    const unpaidList = monthStudents.filter((s) => !s.isPaid);
-
-    const paidCount = paidList.length;
-    const unpaidCount = unpaidList.length;
-    const totalExpected = monthStudents.reduce((sum, s) => sum + s.total, 0);
-    const totalCollected = paidList.reduce((sum, s) => sum + s.total, 0);
-    const totalRemaining = totalExpected - totalCollected;
-    const completionRate = totalExpected > 0 ? (totalCollected / totalExpected) * 100 : 0;
-
-    return {
-      totalStudents,
-      paidCount,
-      unpaidCount,
-      totalExpected,
-      totalCollected,
-      totalRemaining,
-      completionRate,
-      unpaidList: unpaidList.slice(0, 4), // show up to 4 pending students
-    };
-  }, [students, currentMonth]);
-
-  // 3. Top Categories (Income & Expense)
+  // 2. Top Categories (Income & Expense)
   const { topIncomeCategories, topExpenseCategories } = useMemo(() => {
     const incMap: Record<string, { name: string; amount: number; count: number }> = {};
     const expMap: Record<string, { name: string; amount: number; count: number }> = {};
@@ -254,11 +224,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return result;
   }, [transactions, currentMonth]);
 
-  // Handle quick tuition collection
-  const handleQuickPay = (studentId: string) => {
-    onConfirmTuitionPayment(studentId, 'chuyen_khoan', getCurrentDateStr());
-  };
-
   const isProfitable = profit >= 0;
 
   return (
@@ -295,7 +260,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </h1>
             <p className="text-xs sm:text-sm text-slate-100 mt-1 max-w-2xl leading-relaxed">
               {isBusiness
-                ? 'Theo dõi toàn diện tình hình tài chính, chỉ số học phí học sinh, cơ cấu thu - chi và sổ giao dịch trong tháng.'
+                ? 'Theo dõi toàn diện tình hình tài chính, cơ cấu thu - chi và sổ giao dịch trong tháng.'
                 : 'Theo dõi chi tiêu sinh hoạt, ngân sách ăn uống, hóa đơn, con cái và tỷ lệ tích lũy gia đình với số liệu độc lập.'}
             </p>
 
@@ -378,7 +343,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="mt-1 flex items-center justify-between text-[11px] sm:text-xs text-slate-500">
               <span>{thuCount} giao dịch</span>
               <span className="text-emerald-700 font-medium">
-                {isBusiness ? 'Học phí & các khoản thu' : 'Lương, thưởng & thu phụ'}
+                {isBusiness ? 'Doanh thu & các khoản thu' : 'Lương, thưởng & thu phụ'}
               </span>
             </div>
           </div>
@@ -475,105 +440,114 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* ================= 2-COLUMN SECTION: QUẢN LÝ HỌC PHÍ / CHI TIÊU GIA ĐÌNH & BIỂU ĐỒ XU HƯỚNG ================= */}
+      {/* ================= 2-COLUMN SECTION: HIỆU QUẢ HOẠT ĐỘNG / CHI TIÊU GIA ĐÌNH & BIỂU ĐỒ XU HƯỚNG ================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
-        {/* MODULE 1: BUSINESS (HỌC PHÍ) HOẶC HOME (CHI TIÊU & TÍCH LŨY GIA ĐÌNH) (5 COLS ON DESKTOP) */}
+        {/* MODULE 1: BUSINESS (HIỆU QUẢ HOẠT ĐỘNG) HOẶC HOME (CHI TIÊU & TÍCH LŨY GIA ĐÌNH) (5 COLS ON DESKTOP) */}
         {isBusiness ? (
           <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-red-50 text-red-700 rounded-lg">
-                    <GraduationCap className="w-5 h-5" />
+                    <Building2 className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                      Mục 1: Quản Lý Học Phí Học Sinh
+                      Mục 1: Kế Hoạch & Hiệu Quả Hoạt Động
                     </h3>
-                    <p className="text-[11px] text-slate-500">Tiến độ thu học phí tháng {currentMonth}</p>
+                    <p className="text-[11px] text-slate-500">Hiệu quả và tỷ suất vận hành tháng {currentMonth}</p>
                   </div>
                 </div>
                 <button
-                  onClick={() => onNavigateToTab('hoc_phi')}
+                  onClick={() => onNavigateToTab('bang_tinh')}
                   className="text-xs font-semibold text-red-700 hover:text-red-800 inline-flex items-center gap-0.5 cursor-pointer"
                 >
-                  <span>Xem tất cả</span>
+                  <span>Xem Bảng Tính</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Tuition Progress & Summary Stats */}
-              <div className="bg-slate-50 rounded-xl p-3.5 mb-3 border border-slate-100 space-y-2.5">
+              {/* Business Margin & Operational Performance */}
+              <div className="bg-red-50/50 rounded-xl p-3.5 mb-3 border border-red-100 space-y-2.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600">Tiến độ thanh toán:</span>
-                  <span className="font-bold text-slate-900 font-mono">
-                    {tuitionStats.paidCount}/{tuitionStats.totalStudents} học sinh (
-                    {formatPercent(tuitionStats.completionRate)})
+                  <span className="text-slate-700 font-medium">Tỷ suất thặng dư / Doanh thu:</span>
+                  <span className="font-bold text-red-700 font-mono text-sm">
+                    {formatPercent(profitMargin)}
                   </span>
                 </div>
                 {/* Progress Bar */}
                 <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
                   <div
-                    className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, tuitionStats.completionRate)}%` }}
+                    className={`h-2.5 rounded-full transition-all duration-500 ${
+                      profit >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, profitMargin))}%` }}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60 text-xs">
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-red-200/60 text-xs">
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Đã thu về</span>
-                    <span className="font-bold text-emerald-600 font-mono">
-                      {formatVND(tuitionStats.totalCollected)}
+                    <span className="text-slate-500 block text-[10px] uppercase font-medium">Lợi nhuận ròng</span>
+                    <span className={`font-bold font-mono ${profit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      {formatVND(profit)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Còn chưa nộp</span>
-                    <span className="font-bold text-rose-600 font-mono">
-                      {formatVND(tuitionStats.totalRemaining)}
+                    <span className="text-slate-500 block text-[10px] uppercase font-medium">Đánh giá vận hành</span>
+                    <span className="font-semibold text-slate-800 text-[11px]">
+                      {profit > 20000000
+                        ? 'Vận hành rất hiệu quả ⭐'
+                        : profit >= 0
+                        ? 'Cân đối tài chính tốt 👍'
+                        : 'Chi vượt thu trong tháng ⚠️'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Unpaid Students List (Pending Collection) */}
+              {/* Top Expense Categories Breakdown */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                   <span className="inline-flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-                    Học sinh chưa nộp học phí ({tuitionStats.unpaidCount})
+                    <Layers className="w-3.5 h-3.5 text-red-700" />
+                    Các Nhóm Chi Phí Lớn Nhất ({topExpenseCategories.length})
                   </span>
                 </div>
 
-                {tuitionStats.unpaidList.length === 0 ? (
-                  <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto mb-1" />
-                    <p className="text-xs font-semibold text-emerald-800">
-                      Tất cả học sinh đã hoàn tất nộp học phí!
-                    </p>
+                {topExpenseCategories.length === 0 ? (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center text-xs text-slate-500">
+                    Chưa có khoản chi nào trong tháng.
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {tuitionStats.unpaidList.map((stu) => (
-                      <div
-                        key={stu.id}
-                        className="p-2 sm:p-2.5 bg-white border border-slate-200/90 rounded-lg hover:border-amber-300 transition-colors flex items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 truncate">
-                            {stu.studentName}
-                          </div>
-                          <div className="text-[10px] text-slate-500 truncate">
-                            {stu.className} • Phí: {formatVND(stu.total)}
+                  <div className="space-y-2">
+                    {topExpenseCategories.slice(0, 4).map((cat) => {
+                      const share = totalExpense > 0 ? (cat.amount / totalExpense) * 100 : 0;
+                      return (
+                        <div
+                          key={cat.id}
+                          className="p-2 sm:p-2.5 bg-white border border-slate-200/90 rounded-lg hover:border-red-300 transition-colors flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between text-xs mb-1">
+                              <span className="font-semibold text-slate-900 truncate">
+                                {cat.name}
+                              </span>
+                              <span className="font-mono font-bold text-slate-800 ml-2 shrink-0">
+                                {formatVND(cat.amount)}
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-red-600 h-1.5 rounded-full"
+                                style={{ width: `${Math.min(100, share)}%` }}
+                              />
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5 text-right font-mono">
+                              {share.toFixed(1)}% tổng chi
+                            </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleQuickPay(stu.id)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-200 transition-colors shrink-0 cursor-pointer"
-                          title="Xác nhận thu tiền học phí nhanh"
-                        >
-                          Thu ngay
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -581,11 +555,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="mt-4 pt-3 border-t border-slate-100">
               <button
-                onClick={() => onNavigateToTab('hoc_phi')}
+                onClick={() => onNavigateToTab('bang_tinh')}
                 className="w-full py-2 text-xs font-semibold text-slate-700 hover:text-red-700 bg-slate-50 hover:bg-red-50/50 rounded-xl border border-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <Users className="w-3.5 h-3.5" />
-                <span>Mở Toàn Bộ Sổ Học Phí & In Phiếu Báo</span>
+                <Table className="w-3.5 h-3.5" />
+                <span>Xem Bảng Kê Thu Chi Chi Tiết</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -1094,7 +1068,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Upload className="w-4 h-4 text-emerald-700 mb-1.5" />
               <div>
                 <div className="text-xs font-bold text-emerald-950">Nhập Khoản Thu Từ Excel</div>
-                <div className="text-[10px] text-emerald-700">File học phí, tiền ăn, phụ thu</div>
+                <div className="text-[10px] text-emerald-700">File doanh thu, phí dịch vụ, phụ thu</div>
               </div>
             </button>
           )}

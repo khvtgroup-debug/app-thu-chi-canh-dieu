@@ -34,6 +34,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [schoolForm, setSchoolForm] = useState<SchoolConfig>(schoolConfig);
   const [familyForm, setFamilyForm] = useState<FamilyConfig>(familyConfig);
   const [importStatus, setImportStatus] = useState<string>('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   useEffect(() => {
     setSchoolForm(schoolConfig);
@@ -88,19 +89,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleResetData = () => {
-    const confirmMsg = isBusiness
-      ? 'Bạn có chắc chắn muốn nạp lại dữ liệu mẫu của trường mầm non? Dữ liệu hiện tại của trường sẽ được thay thế bằng bộ mẫu chuẩn.'
-      : 'Bạn có chắc chắn muốn nạp lại dữ liệu mẫu của gia đình? Dữ liệu hiện tại của gia đình sẽ được thay thế bằng bộ mẫu chuẩn.';
+    setShowResetConfirm(true);
+  };
 
-    if (window.confirm(confirmMsg)) {
-      if (isBusiness) {
-        resetBusinessDataToDefault();
-      } else {
-        resetHomeDataToDefault();
-      }
-      onDataReloaded();
-      onClose();
+  const handleConfirmReset = () => {
+    if (isBusiness) {
+      resetBusinessDataToDefault();
+    } else {
+      resetHomeDataToDefault();
     }
+    setShowResetConfirm(false);
+    onDataReloaded();
+    onClose();
   };
 
   return (
@@ -400,6 +400,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CONFIRM RESET MODAL */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden p-5 sm:p-6 text-center animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">
+              Khôi phục dữ liệu mẫu?
+            </h3>
+            <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+              {isBusiness
+                ? 'Dữ liệu hiện tại của trường học sẽ được thay thế bằng bộ mẫu chuẩn ban đầu. Hành động này không thể hoàn tác.'
+                : 'Dữ liệu hiện tại của gia đình sẽ được thay thế bằng bộ mẫu chuẩn ban đầu. Hành động này không thể hoàn tác.'}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="w-full py-2.5 px-3 text-xs sm:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReset}
+                className="w-full py-2.5 px-3 text-xs sm:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

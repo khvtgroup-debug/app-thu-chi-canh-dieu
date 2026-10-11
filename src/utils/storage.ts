@@ -91,7 +91,13 @@ export function loadCategories(): CategoryItem[] {
       saveCategories(ALL_CATEGORIES);
       return ALL_CATEGORIES;
     }
-    return JSON.parse(raw);
+    const parsed: CategoryItem[] = JSON.parse(raw);
+    // Enrich with default monthlyBudget if not set
+    const defaultMap = new Map(ALL_CATEGORIES.map((c) => [c.id, c.monthlyBudget]));
+    return parsed.map((cat) => ({
+      ...cat,
+      monthlyBudget: cat.monthlyBudget !== undefined ? cat.monthlyBudget : defaultMap.get(cat.id),
+    }));
   } catch (err) {
     console.error('Error loading categories', err);
     return ALL_CATEGORIES;
@@ -168,7 +174,12 @@ export function loadHomeCategories(): CategoryItem[] {
       saveHomeCategories(HOME_ALL_CATEGORIES);
       return HOME_ALL_CATEGORIES;
     }
-    return JSON.parse(raw);
+    const parsed: CategoryItem[] = JSON.parse(raw);
+    const defaultMap = new Map(HOME_ALL_CATEGORIES.map((c) => [c.id, c.monthlyBudget]));
+    return parsed.map((cat) => ({
+      ...cat,
+      monthlyBudget: cat.monthlyBudget !== undefined ? cat.monthlyBudget : defaultMap.get(cat.id),
+    }));
   } catch (err) {
     console.error('Error loading home categories', err);
     return HOME_ALL_CATEGORIES;

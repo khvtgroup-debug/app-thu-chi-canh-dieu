@@ -13,14 +13,17 @@ import {
   Cell,
 } from 'recharts';
 import { BarChart2, PieChart } from 'lucide-react';
-import { Transaction, CategoryItem } from '../types/finance';
+import { Transaction, CategoryItem, AppMode, HomeThemeColor } from '../types/finance';
 import { DEFAULT_EXPENSE_CATEGORIES } from '../data/defaultCategories';
 import { formatVND, formatPercent } from '../utils/formatters';
+import { getThemeConfig } from '../utils/themeConfig';
 
 interface StatsViewProps {
   transactions: Transaction[];
   currentYear: number;
   categories?: CategoryItem[];
+  mode?: AppMode;
+  themeColor?: HomeThemeColor;
 }
 
 const PIE_COLORS = [
@@ -38,7 +41,11 @@ export const StatsView: React.FC<StatsViewProps> = ({
   transactions,
   currentYear,
   categories,
+  mode = 'business',
+  themeColor,
 }) => {
+  const isBusiness = mode === 'business';
+  const theme = getThemeConfig(themeColor);
   const [showProfitBar, setShowProfitBar] = useState(true);
 
   // Compute monthly data for 12 months of currentYear
@@ -178,9 +185,11 @@ export const StatsView: React.FC<StatsViewProps> = ({
     <div className="space-y-4 sm:space-y-6">
       {/* Year Overview KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-        <div className="bg-white p-3.5 sm:p-4.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className={`bg-white p-3.5 sm:p-4.5 rounded-xl border shadow-2xs ${
+          !isBusiness ? theme.summaryCardBorder : 'border-slate-200'
+        }`}>
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider block truncate">
-            Doanh Thu Năm {currentYear}
+            {isBusiness ? `Doanh Thu Năm ${currentYear}` : `Thu Nhập Năm ${currentYear}`}
           </span>
           <div className="mt-1.5 sm:mt-2 text-base xs:text-lg sm:text-2xl font-bold text-emerald-600 font-mono tabular-nums truncate">
             {formatVND(yearRevenue)}
@@ -190,9 +199,11 @@ export const StatsView: React.FC<StatsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className={`bg-white p-3.5 sm:p-4.5 rounded-xl border shadow-2xs ${
+          !isBusiness ? theme.summaryCardBorder : 'border-slate-200'
+        }`}>
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider block truncate">
-            Chi Phí Năm {currentYear}
+            {isBusiness ? `Chi Phí Năm ${currentYear}` : `Chi Tiêu Năm ${currentYear}`}
           </span>
           <div className="mt-1.5 sm:mt-2 text-base xs:text-lg sm:text-2xl font-bold text-rose-600 font-mono tabular-nums truncate">
             {formatVND(yearExpense)}
@@ -202,13 +213,15 @@ export const StatsView: React.FC<StatsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className={`bg-white p-3.5 sm:p-4.5 rounded-xl border shadow-2xs ${
+          !isBusiness ? theme.summaryCardBorder : 'border-slate-200'
+        }`}>
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider block truncate">
-            Lợi Nhuận Năm {currentYear}
+            {isBusiness ? `Lợi Nhuận Năm ${currentYear}` : `Tích Lũy Năm ${currentYear}`}
           </span>
           <div
             className={`mt-1.5 sm:mt-2 text-base xs:text-lg sm:text-2xl font-bold font-mono tabular-nums truncate ${
-              yearProfit >= 0 ? 'text-slate-900' : 'text-rose-600'
+              yearProfit >= 0 ? (isBusiness ? 'text-slate-900' : theme.accentText) : 'text-rose-600'
             }`}
           >
             {formatVND(yearProfit)}
@@ -218,15 +231,17 @@ export const StatsView: React.FC<StatsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className={`bg-white p-3.5 sm:p-4.5 rounded-xl border shadow-2xs ${
+          !isBusiness ? theme.summaryCardBorder : 'border-slate-200'
+        }`}>
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider block truncate">
-            Tỷ Suất (% on Rev)
+            {isBusiness ? 'Tỷ Suất (% on Rev)' : 'Tỷ Lệ Tích Lũy (%)'}
           </span>
           <div className="mt-1.5 sm:mt-2 text-base xs:text-lg sm:text-2xl font-bold text-sky-600 font-mono tabular-nums truncate">
             {formatPercent(yearMargin)}
           </div>
           <div className="mt-0.5 sm:mt-1 text-[11px] sm:text-xs text-slate-500 truncate hidden xs:block">
-            Đánh giá hiệu quả
+            {isBusiness ? 'Đánh giá hiệu quả' : 'Tỷ lệ dư / thu nhập'}
           </div>
         </div>
       </div>
@@ -240,7 +255,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
               <span>Biểu Đồ So Sánh Tổng Thu & Tổng Chi 12 Tháng Năm {currentYear}</span>
             </h3>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-              Tích hợp Recharts phân tích xu hướng thu chi và thặng dư tài chính trường mầm non
+              {isBusiness
+                ? 'Tích hợp Recharts phân tích xu hướng thu chi và thặng dư tài chính trường mầm non'
+                : 'Tích hợp Recharts phân tích xu hướng thu chi và quỹ tích lũy tài chính gia đình'}
             </p>
           </div>
 
@@ -252,7 +269,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 onChange={(e) => setShowProfitBar(e.target.checked)}
                 className="rounded text-emerald-600 focus:ring-emerald-500"
               />
-              <span className="font-medium">Hiện cột Lợi Nhuận</span>
+              <span className="font-medium">{isBusiness ? 'Hiện cột Lợi Nhuận' : 'Hiện cột Tích Lũy'}</span>
             </label>
           </div>
         </div>

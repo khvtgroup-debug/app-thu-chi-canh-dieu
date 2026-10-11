@@ -19,7 +19,7 @@ import { SchoolConfig, FamilyConfig, AppMode, HomeThemeColor } from '../types/fi
 import { KiteLogo } from './KiteLogo';
 import { getThemeConfig, THEME_OPTIONS } from '../utils/themeConfig';
 
-export type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'hoc_phi' | 'thong_ke';
+export type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'thong_ke';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -139,7 +139,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-white text-red-700 shadow-2xs ring-1 ring-slate-900/5'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
-                title="Chế độ Quản lý Thu Chi & Học Phí Trường Học (Business)"
+                title="Chế độ Quản lý Thu Chi Trường Học (Business)"
               >
                 <Building2 className={`w-3.5 h-3.5 ${isBusiness ? 'text-red-600' : 'text-slate-400'}`} />
                 <span className="hidden xs:inline">Trường Học</span>
@@ -207,20 +207,6 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 Sổ Giao Dịch
               </button>
-
-              {/* School Tuition Tab only for Business mode */}
-              {isBusiness && (
-                <button
-                  onClick={() => setActiveTab('hoc_phi')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                    activeTab === 'hoc_phi'
-                      ? 'bg-red-700 text-white shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-red-700 hover:bg-orange-50/60'
-                  }`}
-                >
-                  Quản Lý Học Phí
-                </button>
-              )}
 
               <button
                 onClick={() => setActiveTab('thong_ke')}
@@ -361,11 +347,7 @@ export const Header: React.FC<HeaderProps> = ({
         aria-label="Điều hướng chính trên điện thoại"
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-1 pb-safe print:hidden"
       >
-        <div
-          className={`grid items-center h-15 max-w-md mx-auto ${
-            isBusiness ? 'grid-cols-5' : 'grid-cols-4'
-          }`}
-        >
+        <div className="grid items-center h-15 max-w-md mx-auto grid-cols-4">
           {/* Tab 0: Tổng Quan (Dashboard) */}
           <button
             onClick={() => setActiveTab('dashboard')}
@@ -411,20 +393,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-[10px] tracking-tight mt-0.5">Giao Dịch</span>
           </button>
 
-          {/* Tab 3: Học Phí (Chỉ hiển thị ở chế độ Trường Học) */}
-          {isBusiness && (
-            <button
-              onClick={() => setActiveTab('hoc_phi')}
-              className={`flex flex-col items-center justify-center h-full min-h-[44px] transition-colors cursor-pointer ${
-                activeTab === 'hoc_phi' ? 'text-red-600 font-bold' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <GraduationCap className="w-5 h-5" />
-              <span className="text-[10px] tracking-tight mt-0.5">Học Phí</span>
-            </button>
-          )}
-
-          {/* Tab 4: Thống Kê */}
+          {/* Tab 3: Thống Kê */}
           <button
             onClick={() => setActiveTab('thong_ke')}
             className={`flex flex-col items-center justify-center h-full min-h-[44px] transition-colors cursor-pointer ${

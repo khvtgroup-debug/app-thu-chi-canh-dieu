@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Plus, Edit2, Trash2, Check, ArrowLeft, FolderPlus, RotateCcw } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, Check, ArrowLeft, FolderPlus, RotateCcw, Target } from 'lucide-react';
 import { CategoryItem, TransactionType, Transaction } from '../types/finance';
-import { ALL_CATEGORIES } from '../data/defaultCategories';
+import { formatVND } from '../utils/formatters';
 
 interface CategoryManagerModalProps {
   isOpen: boolean;
@@ -28,11 +28,18 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editGroup, setEditGroup] = useState('');
+  const [editMonthlyBudget, setEditMonthlyBudget] = useState('');
 
   // Form for adding new category
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState('Chi phí vận hành');
+  const [newMonthlyBudget, setNewMonthlyBudget] = useState('');
+
+  // In-app confirmation dialogs (safe for iframes)
+  const [deleteConfirmCat, setDeleteConfirmCat] = useState<{ cat: CategoryItem; count: number } | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -47,16 +54,20 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     setEditingId(cat.id);
     setEditName(cat.name);
     setEditGroup(cat.group || '');
+    setEditMonthlyBudget(cat.monthlyBudget ? String(cat.monthlyBudget) : '');
   };
 
   const handleSaveEdit = (catId: string) => {
     if (!editName.trim()) {
-      alert('Tên danh mục không được để trống');
+      setErrorMsg('Tên danh mục không được để trống');
       return;
     }
+    setErrorMsg(null);
+    const budgetNum = Number(editMonthlyBudget);
     onUpdateCategory(catId, {
       name: editName.trim(),
       group: editGroup.trim() || (activeType === 'thu' ? 'Khoản thu' : 'Chi phí'),
+      monthlyBudget: budgetNum > 0 ? budgetNum : undefined,
     });
     setEditingId(null);
   };
@@ -64,33 +75,30 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const handleCreateCategory = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) {
-      alert('Vui lòng nhập tên danh mục');
+      setErrorMsg('Vui lòng nhập tên danh mục mới');
       return;
     }
+    setErrorMsg(null);
+    const budgetNum = Number(newMonthlyBudget);
     onAddCategory({
       name: newName.trim(),
       type: activeType,
       group: newGroup.trim() || (activeType === 'thu' ? 'Khoản thu' : 'Chi phí'),
+      monthlyBudget: budgetNum > 0 ? budgetNum : undefined,
     });
     setNewName('');
+    setNewMonthlyBudget('');
     setIsAddingNew(false);
   };
 
   const handleDelete = (cat: CategoryItem) => {
     const count = getTxCount(cat.id);
-    const confirmMsg =
-      count > 0
-        ? `Danh mục "${cat.name}" hiện đang có ${count} giao dịch trong hệ thống.\n\nBạn có chắc chắn muốn xóa danh mục này không?`
-        : `Bạn có chắc muốn xóa danh mục "${cat.name}" không?`;
-
-    if (window.confirm(confirmMsg)) {
-      onDeleteCategory(cat.id);
-    }
+    setDeleteConfirmCat({ cat, count });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-2xs">
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header with Back button */}
         <div className="px-4 sm:px-6 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
@@ -103,10 +111,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
             </button>
             <div>
               <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                Quản Lý Danh Mục Thu & Chi
+                Quản Lý Danh Mục & Hạn Mức Chi Tiêu
               </h3>
               <p className="text-[11px] sm:text-xs text-slate-500">
-                Thêm, sửa đổi tên và xóa các hạng mục theo nhu cầu của trường
+                Thêm, sửa đổi tên và thiết lập hạn mức ngân sách tháng để nhận cảnh báo tự động
               </p>
             </div>
           </div>
@@ -161,18 +169,27 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
             </button>
 
             <button
-              onClick={() => {
-                if (window.confirm('Khôi phục danh mục về danh sách gốc ban đầu của trường mầm non?')) {
-                  onResetDefaultCategories();
-                }
-              }}
-              className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
+              onClick={() => setShowResetConfirm(true)}
+              className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Khôi phục mặc định</span>
             </button>
           </div>
         </div>
+
+        {/* Error message banner */}
+        {errorMsg && (
+          <div className="mx-4 mt-3 p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between">
+            <span>{errorMsg}</span>
+            <button
+              onClick={() => setErrorMsg(null)}
+              className="text-rose-500 hover:text-rose-800 font-bold ml-2 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Add New Category Form (Inline) */}
         {isAddingNew && (
@@ -191,28 +208,39 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
               <span>Tạo danh mục {activeType === 'thu' ? 'Khoản Thu' : 'Khoản Chi'} mới:</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
                 <input
                   type="text"
                   required
                   placeholder={
                     activeType === 'thu'
-                      ? 'Ví dụ: Xe đưa đón, Đồng phục, Balo, Năng khiếu...'
-                      : 'Ví dụ: Sửa máy lạnh, Gas, Thực phẩm, Đồ chơi...'
+                      ? 'Tên mục (Lương, Thưởng, Bán hàng...)'
+                      : 'Tên mục (Đi chợ, Tiền điện, Xăng xe...)'
                   }
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-red-500"
+                  className="w-full px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-emerald-500"
                 />
               </div>
               <div>
                 <input
                   type="text"
-                  placeholder="Tên nhóm (Vận hành, Nhân sự, Bếp ăn, Học liệu...)"
+                  placeholder="Tên nhóm (Bếp ăn, Tiện ích, Con cái...)"
                   value={newGroup}
                   onChange={(e) => setNewGroup(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-red-500"
+                  className="w-full px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-emerald-500"
+                />
+              </div>
+              <div>
+                <input
+                  type="number"
+                  min="0"
+                  step="100000"
+                  placeholder="Hạn mức tháng (VNĐ) - Tùy chọn"
+                  value={newMonthlyBudget}
+                  onChange={(e) => setNewMonthlyBudget(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white font-mono focus:outline-emerald-500"
                 />
               </div>
             </div>
@@ -252,24 +280,35 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
               >
                 {isEditing ? (
                   // Editing mode
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input
                       type="text"
                       value={editName}
+                      placeholder="Tên danh mục"
                       onChange={(e) => setEditName(e.target.value)}
                       className="px-2.5 py-1 text-xs sm:text-sm border border-slate-300 rounded-md bg-white focus:outline-emerald-500"
                     />
                     <input
                       type="text"
                       value={editGroup}
+                      placeholder="Nhóm phân loại"
                       onChange={(e) => setEditGroup(e.target.value)}
                       className="px-2.5 py-1 text-xs sm:text-sm border border-slate-300 rounded-md bg-white focus:outline-emerald-500"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      step="100000"
+                      placeholder="Hạn mức tháng (VNĐ)"
+                      value={editMonthlyBudget}
+                      onChange={(e) => setEditMonthlyBudget(e.target.value)}
+                      className="px-2.5 py-1 text-xs sm:text-sm border border-slate-300 rounded-md bg-white font-mono focus:outline-emerald-500"
                     />
                   </div>
                 ) : (
                   // Normal view mode
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-[11px] text-slate-400 w-4">
                         {idx + 1}.
                       </span>
@@ -281,6 +320,20 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                           {count} GD
                         </span>
                       )}
+                      {cat.monthlyBudget && cat.monthlyBudget > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                          <Target className="w-3 h-3 text-indigo-600" />
+                          <span>Hạn mức: {formatVND(cat.monthlyBudget)}/th</span>
+                        </span>
+                      ) : activeType === 'chi' ? (
+                        <button
+                          onClick={() => handleStartEdit(cat)}
+                          className="text-[10px] text-slate-400 hover:text-indigo-600 hover:underline cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Target className="w-2.5 h-2.5" />
+                          <span>+ Đặt hạn mức</span>
+                        </button>
+                      ) : null}
                     </div>
                     <div className="text-[11px] text-slate-400 ml-6">
                       Nhóm: {cat.group || 'Chung'}
@@ -312,7 +365,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       <button
                         onClick={() => handleStartEdit(cat)}
                         className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md cursor-pointer transition-colors"
-                        title="Sửa tên danh mục"
+                        title="Sửa tên & hạn mức danh mục"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
@@ -344,6 +397,87 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* CONFIRM DELETE MODAL */}
+      {deleteConfirmCat && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden p-5 sm:p-6 text-center animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">
+              Xác nhận xóa danh mục?
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Danh mục "{deleteConfirmCat.cat.name}" sẽ bị xóa.
+            </p>
+
+            {deleteConfirmCat.count > 0 && (
+              <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-left text-xs mb-4 text-amber-800">
+                Danh mục này đang có <strong>{deleteConfirmCat.count}</strong> giao dịch trong hệ thống. Xóa danh mục sẽ không xóa lịch sử giao dịch.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmCat(null)}
+                className="w-full py-2.5 px-3 text-xs sm:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteCategory(deleteConfirmCat.cat.id);
+                  setDeleteConfirmCat(null);
+                }}
+                className="w-full py-2.5 px-3 text-xs sm:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Xóa ngay</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM RESET MODAL */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden p-5 sm:p-6 text-center animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-3">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">
+              Khôi phục danh mục gốc?
+            </h3>
+            <p className="text-xs text-slate-500 mb-5">
+              Toàn bộ danh mục sẽ được đặt lại theo danh sách tiêu chuẩn của hệ thống.
+            </p>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="w-full py-2.5 px-3 text-xs sm:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onResetDefaultCategories();
+                  setShowResetConfirm(false);
+                }}
+                className="w-full py-2.5 px-3 text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl cursor-pointer"
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

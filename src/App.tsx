@@ -10,7 +10,6 @@ import { KPICards } from './components/KPICards';
 import { DashboardView } from './components/DashboardView';
 import { SpreadsheetView } from './components/SpreadsheetView';
 import { TransactionList } from './components/TransactionList';
-import { TuitionManager } from './components/TuitionManager';
 import { StatsView } from './components/StatsView';
 import { TransactionModal } from './components/TransactionModal';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
@@ -21,7 +20,6 @@ import { ImportExcelModal } from './components/ImportExcelModal';
 
 import {
   Transaction,
-  StudentTuition,
   SchoolConfig,
   FamilyConfig,
   CategoryItem,
@@ -35,8 +33,6 @@ import {
   saveActiveMode,
   loadTransactions,
   saveTransactions,
-  loadStudents,
-  saveStudents,
   loadSchoolConfig,
   saveSchoolConfig,
   loadCategories,
@@ -58,7 +54,7 @@ import {
   exportExpenseOnlyExcel,
 } from './utils/excelExport';
 
-type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'hoc_phi' | 'thong_ke';
+type TabType = 'dashboard' | 'bang_tinh' | 'giao_dich' | 'thong_ke';
 
 interface NavState {
   tab: TabType;
@@ -70,9 +66,8 @@ export default function App() {
   const [mode, setModeState] = useState<AppMode>(() => loadActiveMode());
   const isBusiness = mode === 'business';
 
-  // 2. Business Data State (Trường học / Mầm non)
+  // 2. Business Data State (Trường học / Doanh nghiệp)
   const [bizTransactions, setBizTransactions] = useState<Transaction[]>(() => loadTransactions());
-  const [bizStudents, setBizStudents] = useState<StudentTuition[]>(() => loadStudents());
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(() => loadSchoolConfig());
   const [bizCategories, setBizCategories] = useState<CategoryItem[]>(() => loadCategories());
 
@@ -84,7 +79,6 @@ export default function App() {
   // 4. Active pointers depending on mode
   const transactions = isBusiness ? bizTransactions : homeTransactions;
   const categories = isBusiness ? bizCategories : homeCategories;
-  const students = isBusiness ? bizStudents : [];
 
   // 5. Global View State
   const [currentMonth, setCurrentMonth] = useState<string>(() => getCurrentMonthStr());
@@ -117,10 +111,6 @@ export default function App() {
     setModeState(newMode);
     saveActiveMode(newMode);
     setCategoryFilter('all');
-    // If user was on tuition tab and switches to home mode, switch to dashboard
-    if (newMode === 'home' && activeTab === 'hoc_phi') {
-      setActiveTabState('dashboard');
-    }
   };
 
   // Change theme color for family mode
@@ -159,7 +149,7 @@ export default function App() {
   };
 
   const handleSaveQuickCategory = (
-    catData: { name: string; type: TransactionType; group: string },
+    catData: { name: string; type: TransactionType; group: string; monthlyBudget?: number },
     existingId?: string
   ) => {
     if (existingId) {
@@ -172,9 +162,8 @@ export default function App() {
   // Print Modal
   const [printModalState, setPrintModalState] = useState<{
     isOpen: boolean;
-    type: 'transaction' | 'student' | 'month_report';
+    type: 'transaction' | 'month_report';
     tx?: Transaction | null;
-    student?: StudentTuition | null;
   }>({
     isOpen: false,
     type: 'month_report',
@@ -184,10 +173,6 @@ export default function App() {
   useEffect(() => {
     saveTransactions(bizTransactions);
   }, [bizTransactions]);
-
-  useEffect(() => {
-    saveStudents(bizStudents);
-  }, [bizStudents]);
 
   useEffect(() => {
     saveSchoolConfig(schoolConfig);
@@ -351,49 +336,6 @@ export default function App() {
     navigateTo('giao_dich', categoryId);
   };
 
-  // Tuition Payment Confirmation (Business only)
-  const handleConfirmTuitionPayment = (
-    studentId: string,
-    method: PaymentMethod,
-    paidDate: string
-  ) => {
-    const student = bizStudents.find((s) => s.id === studentId);
-    if (!student) return;
-
-    setBizStudents((prev) =>
-      prev.map((s) =>
-        s.id === studentId ? { ...s, isPaid: true, paidDate, paymentMethod: method } : s
-      )
-    );
-
-    const newTx: Transaction = {
-      id: `tx-tuition-${Date.now()}`,
-      date: paidDate,
-      month: currentMonth,
-      type: 'thu',
-      categoryId: 'hoc_phi',
-      categoryName: 'Học phí',
-      amount: student.total,
-      payerOrReceiver: `PH bé ${student.studentName} (${student.className})`,
-      paymentMethod: method,
-      note: `Thu học phí tháng ${currentMonth} - Bé ${student.studentName}`,
-      createdAt: Date.now(),
-    };
-    setBizTransactions((prev) => [newTx, ...prev]);
-  };
-
-  const handleAddStudent = (studentData: Omit<StudentTuition, 'id'>) => {
-    const newStudent: StudentTuition = {
-      ...studentData,
-      id: `stu-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-    };
-    setBizStudents((prev) => [...prev, newStudent]);
-  };
-
-  const handleDeleteStudent = (id: string) => {
-    setBizStudents((prev) => prev.filter((s) => s.id !== id));
-  };
-
   // Adapted config for Excel & print exports
   const activeExportConfig: SchoolConfig = useMemo(() => {
     if (isBusiness) return schoolConfig;
@@ -474,17 +416,8 @@ export default function App() {
     });
   };
 
-  const handlePrintStudentReceipt = (stu: StudentTuition) => {
-    setPrintModalState({
-      isOpen: true,
-      type: 'student',
-      student: stu,
-    });
-  };
-
   const handleDataReloaded = () => {
     setBizTransactions(loadTransactions());
-    setBizStudents(loadStudents());
     setSchoolConfig(loadSchoolConfig());
     setBizCategories(loadCategories());
     setHomeTransactions(loadHomeTransactions());
@@ -537,7 +470,6 @@ export default function App() {
             currentMonth={currentMonth}
             transactions={transactions}
             currentMonthTransactions={currentMonthTransactions}
-            students={students}
             categories={categories}
             schoolConfig={schoolConfig}
             familyConfig={familyConfig}
@@ -549,7 +481,6 @@ export default function App() {
             onExportCSV={handleExportCSV}
             onPrintMonthReport={handlePrintMonthReport}
             onOpenSettings={() => setIsSettingsOpen(true)}
-            onConfirmTuitionPayment={handleConfirmTuitionPayment}
             onOpenImportExcel={handleOpenImportExcel}
             onExportExcel={handleExportTransactionsExcel}
             onChangeTheme={handleChangeTheme}
@@ -593,24 +524,14 @@ export default function App() {
           />
         )}
 
-        {/* TAB 3: QUẢN LÝ HỌC PHÍ HỌC SINH (Chỉ dành cho chế độ Trường Học) */}
-        {activeTab === 'hoc_phi' && isBusiness && (
-          <TuitionManager
-            students={students}
-            currentMonth={currentMonth}
-            onConfirmPayment={handleConfirmTuitionPayment}
-            onAddStudent={handleAddStudent}
-            onDeleteStudent={handleDeleteStudent}
-            onPrintStudentReceipt={handlePrintStudentReceipt}
-          />
-        )}
-
-        {/* TAB 4: THỐNG KÊ 12 THÁNG & BÁO CÁO NĂM */}
+        {/* TAB 3: THỐNG KÊ 12 THÁNG & BÁO CÁO NĂM */}
         {activeTab === 'thong_ke' && (
           <StatsView
             transactions={transactions}
             currentYear={currentYear}
             categories={categories}
+            mode={mode}
+            themeColor={familyConfig?.themeColor}
           />
         )}
       </main>
@@ -649,13 +570,12 @@ export default function App() {
         onResetDefaultCategories={handleResetDefaultCategories}
       />
 
-      {/* MODAL: In Phiếu Thu / Chi / Giấy Báo Học Phí / Báo Cáo Tháng */}
+      {/* MODAL: In Phiếu Thu / Chi / Báo Cáo Tháng */}
       <PrintReceiptModal
         isOpen={printModalState.isOpen}
         onClose={() => setPrintModalState((prev) => ({ ...prev, isOpen: false }))}
         type={printModalState.type}
         transaction={printModalState.tx}
-        student={printModalState.student}
         monthStr={currentMonth}
         transactions={currentMonthTransactions}
         schoolConfig={schoolConfig}

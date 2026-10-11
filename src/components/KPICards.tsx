@@ -44,7 +44,7 @@ export const KPICards: React.FC<KPICardsProps> = ({
             {formatVND(totalRevenue)}
           </div>
           <div className="mt-0.5 sm:mt-1 text-[11px] sm:text-xs text-slate-500 truncate hidden xs:block">
-            {isBusiness ? 'Học phí, ăn, CSVC' : 'Lương, thưởng & thu phụ'}
+            {isBusiness ? 'Khoản thu hoạt động' : 'Lương, thưởng & thu phụ'}
           </div>
         </div>
       </div>

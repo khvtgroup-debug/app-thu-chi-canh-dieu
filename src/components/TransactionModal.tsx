@@ -33,10 +33,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [payerOrReceiver, setPayerOrReceiver] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('chuyen_khoan');
   const [note, setNote] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const currentCategories = categories.filter((c) => c.type === type);
 
   useEffect(() => {
+    setErrorMsg(null);
     if (editingTx) {
       setType(editingTx.type);
       setCategoryId(editingTx.categoryId);
@@ -84,9 +86,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (numAmount <= 0) {
-      alert('Vui lòng nhập số tiền lớn hơn 0');
+      setErrorMsg('Vui lòng nhập số tiền lớn hơn 0');
       return;
     }
+    setErrorMsg(null);
 
     const selectedCat = categories.find((c) => c.id === categoryId);
     const categoryName = selectedCat ? selectedCat.name : 'Khác';
@@ -142,6 +145,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3.5 sm:space-y-4 overflow-y-auto flex-1 text-sm">
+          {errorMsg && (
+            <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between">
+              <span>{errorMsg}</span>
+              <button
+                type="button"
+                onClick={() => setErrorMsg(null)}
+                className="text-rose-500 hover:text-rose-800 font-bold ml-2 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {/* Type Switcher */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">

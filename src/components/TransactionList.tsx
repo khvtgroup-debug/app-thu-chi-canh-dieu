@@ -79,6 +79,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   const [typeFilter, setTypeFilter] = useState<'all' | 'thu' | 'chi'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>(initialCategoryFilter || 'all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'tien_mat' | 'chuyen_khoan'>('all');
+  const [deleteConfirmTx, setDeleteConfirmTx] = useState<Transaction | null>(null);
 
   // Dropdown states for separate Export & Import
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -317,7 +318,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({
                       <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <div>
                         <div className="font-semibold">Nhập Khoản Thu riêng</div>
-                        <div className="text-[10px] text-slate-500">Cho file chỉ gồm học phí, phụ thu...</div>
+                        <div className="text-[10px] text-slate-500">Cho file chỉ gồm doanh thu, phụ thu...</div>
                       </div>
                     </button>
 
@@ -402,10 +403,10 @@ export const TransactionList: React.FC<TransactionListProps> = ({
           {/* Quick Filter Tags / Suggestions */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs pt-0.5">
             <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-amber-500" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Gợi ý tìm nhanh:</span>
             </span>
-            {['Học phí', 'Tiền ăn', 'Lương', 'Thực phẩm', 'Phụ huynh', 'CSVC', 'Chuyển khoản'].map((tag) => (
+            {['Doanh thu', 'Tiền ăn', 'Lương', 'Thực phẩm', 'Khách hàng', 'CSVC', 'Chuyển khoản'].map((tag) => (
               <button
                 key={tag}
                 type="button"
@@ -683,12 +684,9 @@ export const TransactionList: React.FC<TransactionListProps> = ({
                       <span>Sửa</span>
                     </button>
                     <button
-                      onClick={() => {
-                        if (window.confirm(`Bạn có chắc muốn xóa khoản "${tx.categoryName} - ${formatVND(tx.amount)}"?`)) {
-                          onDeleteTx(tx.id);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-rose-600 hover:bg-rose-50 rounded-md cursor-pointer"
+                      onClick={() => setDeleteConfirmTx(tx)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-md cursor-pointer transition-colors active:scale-95 font-medium"
+                      title="Xóa giao dịch này"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Xóa</span>
@@ -773,12 +771,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Bạn có chắc muốn xóa khoản "${tx.categoryName} - ${formatVND(tx.amount)}"?`)) {
-                                onDeleteTx(tx.id);
-                              }
-                            }}
-                            title="Xóa"
+                            onClick={() => setDeleteConfirmTx(tx)}
+                            title="Xóa giao dịch"
                             className="p-1 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -792,6 +786,81 @@ export const TransactionList: React.FC<TransactionListProps> = ({
             </table>
           </div>
         </>
+      )}
+
+      {/* MODAL XÁC NHẬN XÓA GIAO DỊCH (HOẠT ĐỘNG HOÀN HẢO TRÊN MỌI THIẾT BỊ & TRÌNH DUYỆT) */}
+      {deleteConfirmTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 sm:p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">
+                Xác nhận xóa giao dịch?
+              </h3>
+              <p className="text-xs text-slate-500 mb-4">
+                Khoản thu chi này sẽ bị xóa khỏi sổ sách. Bạn có chắc chắn không?
+              </p>
+
+              {/* Chi tiết giao dịch */}
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-left text-xs space-y-1.5 mb-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Hạng mục:</span>
+                  <span className="font-bold text-slate-900">{deleteConfirmTx.categoryName}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Số tiền:</span>
+                  <span
+                    className={`font-mono font-bold text-sm ${
+                      deleteConfirmTx.type === 'thu' ? 'text-emerald-600' : 'text-rose-600'
+                    }`}
+                  >
+                    {deleteConfirmTx.type === 'thu' ? '+' : '-'}
+                    {formatVND(deleteConfirmTx.amount)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Ngày ghi:</span>
+                  <span className="font-mono text-slate-700">{formatDateVN(deleteConfirmTx.date)}</span>
+                </div>
+                {deleteConfirmTx.payerOrReceiver && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Đối tượng:</span>
+                    <span className="text-slate-800 font-medium">{deleteConfirmTx.payerOrReceiver}</span>
+                  </div>
+                )}
+                {deleteConfirmTx.note && (
+                  <div className="pt-1.5 border-t border-slate-200/80 text-slate-600 italic">
+                    "{deleteConfirmTx.note}"
+                  </div>
+                )}
+              </div>
+
+              {/* Nút hành động */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmTx(null)}
+                  className="w-full py-2.5 px-3 text-xs sm:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteTx(deleteConfirmTx.id);
+                    setDeleteConfirmTx(null);
+                  }}
+                  className="w-full py-2.5 px-3 text-xs sm:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Xóa ngay</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -8,6 +8,7 @@ export interface CategoryItem {
   type: TransactionType;
   group?: string;
   description?: string;
+  monthlyBudget?: number; // Hạn mức chi tiêu hàng tháng (VND)
 }
 
 export interface Transaction {

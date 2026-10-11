@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Plus,
   ChevronDown,
@@ -9,11 +9,14 @@ import {
   Settings2,
   Edit2,
   Trash2,
-  FolderPlus,
   FileSpreadsheet,
   Upload,
   ArrowUpRight,
   ArrowDownRight,
+  AlertTriangle,
+  AlertCircle,
+  ShieldCheck,
+  Target,
 } from 'lucide-react';
 import { Transaction, CategoryItem, TransactionType, AppMode, HomeThemeColor } from '../types/finance';
 import { formatVND, formatPercent } from '../utils/formatters';
@@ -56,6 +59,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
   });
 
   const [mobileViewMode, setMobileViewMode] = useState<'list' | 'table'>('list');
+  const [deleteConfirmCat, setDeleteConfirmCat] = useState<{ cat: CategoryItem; count: number } | null>(null);
 
   // Dropdown states for top bar
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -103,17 +107,190 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
   const isProfitable = profit >= 0;
   const marginPercent = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
 
+  // Calculate budget stats for expense categories
+  const budgetStats = useMemo(() => {
+    let totalBudget = 0;
+    let totalBudgetedSpent = 0;
+    let exceededCount = 0;
+    let warningCount = 0;
+    let safeCount = 0;
+    const exceededList: Array<{ cat: CategoryItem; spent: number; budget: number; ratio: number }> = [];
+    const warningList: Array<{ cat: CategoryItem; spent: number; budget: number; ratio: number }> = [];
+
+    expenseCategories.forEach((cat) => {
+      if (cat.monthlyBudget && cat.monthlyBudget > 0) {
+        const spent = categoryMap[cat.id]?.total || 0;
+        const budget = cat.monthlyBudget;
+        totalBudget += budget;
+        totalBudgetedSpent += spent;
+        const ratio = spent / budget;
+        if (ratio >= 1.0) {
+          exceededCount++;
+          exceededList.push({ cat, spent, budget, ratio });
+        } else if (ratio >= 0.8) {
+          warningCount++;
+          warningList.push({ cat, spent, budget, ratio });
+        } else {
+          safeCount++;
+        }
+      }
+    });
+
+    return {
+      totalBudget,
+      totalBudgetedSpent,
+      exceededCount,
+      warningCount,
+      safeCount,
+      exceededList,
+      warningList,
+      hasAlerts: exceededCount > 0 || warningCount > 0,
+      totalBudgetedCategories: exceededCount + warningCount + safeCount,
+    };
+  }, [expenseCategories, categoryMap]);
+
   const handleDeletePrompt = (cat: CategoryItem) => {
     const data = categoryMap[cat.id];
     const count = data?.count || 0;
-    const msg =
-      count > 0
-        ? `Hạng mục "${cat.name}" đang có ${count} giao dịch trong sổ thu chi.\n\nBạn có chắc chắn muốn xóa hạng mục này?`
-        : `Bạn có chắc muốn xóa hạng mục "${cat.name}"?`;
+    setDeleteConfirmCat({ cat, count });
+  };
 
-    if (window.confirm(msg)) {
-      onDeleteCategory(cat.id);
+  // Helper function to render visual budget indicators
+  const renderBudgetIndicator = (cat: CategoryItem, totalSpent: number, compact: boolean = false) => {
+    if (!cat.monthlyBudget || cat.monthlyBudget <= 0) {
+      if (cat.type !== 'chi') return <span className="text-slate-300">-</span>;
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenEditCategoryModal(cat);
+          }}
+          className="text-[11px] text-slate-400 hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+          title="Thiết lập hạn mức chi tiêu tháng cho mục này"
+        >
+          <Target className="w-3 h-3 text-slate-400" />
+          <span>+ Đặt hạn mức</span>
+        </button>
+      );
     }
+
+    const budget = cat.monthlyBudget;
+    const ratio = totalSpent / budget;
+    const percent = ratio * 100;
+    const isOver100 = ratio >= 1.0;
+    const isOver80 = ratio >= 0.8 && !isOver100;
+    const diff = Math.abs(totalSpent - budget);
+
+    if (compact) {
+      // Mobile compact display
+      return (
+        <div
+          className="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1 cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenEditCategoryModal(cat);
+          }}
+          title="Bấm để điều chỉnh hạn mức ngân sách"
+        >
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-1">
+              {isOver100 ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white animate-pulse">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <span>⚠️ VƯỢT NGÂN SÁCH {percent.toFixed(0)}%</span>
+                </span>
+              ) : isOver80 ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-white">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  <span>⚡ CẢNH BÁO {percent.toFixed(0)}%</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-600 font-medium">
+                  <Target className="w-3 h-3 text-indigo-500 shrink-0" />
+                  <span>{percent.toFixed(0)}% ngân sách</span>
+                </span>
+              )}
+            </div>
+            <span className="font-mono text-[10px] font-semibold">
+              {isOver100 ? (
+                <span className="text-rose-600">Vượt +{formatVND(diff)}</span>
+              ) : (
+                <span className="text-slate-500">Còn lại {formatVND(diff)}</span>
+              )}
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+            <div
+              className={`h-full transition-all rounded-full ${
+                isOver100 ? 'bg-rose-600' : isOver80 ? 'bg-amber-500' : 'bg-emerald-500'
+              }`}
+              style={{ width: `${Math.min(percent, 100)}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <span>Hạn mức: {formatVND(budget)}/th</span>
+            <span className="hover:text-indigo-600 underline">Đổi hạn mức ✎</span>
+          </div>
+        </div>
+      );
+    }
+
+    // Full table display
+    return (
+      <div
+        className="flex flex-col gap-1 cursor-pointer group/budget px-1"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenEditCategoryModal(cat);
+        }}
+        title="Bấm để chỉnh sửa hạn mức ngân sách"
+      >
+        <div className="flex items-center justify-between gap-1.5 text-xs">
+          <div className="flex items-center gap-1">
+            {isOver100 ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                <AlertTriangle className="w-3 h-3 text-rose-600 animate-pulse shrink-0" />
+                <span>VƯỢT {percent.toFixed(0)}%</span>
+              </span>
+            ) : isOver80 ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                <span>CẢNH BÁO {percent.toFixed(0)}%</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] text-slate-600 font-medium">
+                <Target className="w-3 h-3 text-indigo-500 shrink-0" />
+                <span>{percent.toFixed(0)}%</span>
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-mono text-slate-500">
+            {isOver100 ? (
+              <span className="text-rose-600 font-semibold">+{formatVND(diff)}</span>
+            ) : (
+              <span>còn {formatVND(diff)}</span>
+            )}
+          </span>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="w-full bg-slate-200/80 rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full transition-all rounded-full ${
+              isOver100 ? 'bg-rose-600' : isOver80 ? 'bg-amber-500' : 'bg-emerald-500'
+            }`}
+            style={{ width: `${Math.min(percent, 100)}%` }}
+          />
+        </div>
+
+        <div className="text-[10px] text-slate-400 font-mono text-right group-hover/budget:text-indigo-600 transition-colors">
+          Hạn mức: {formatVND(budget)} ✎
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -237,7 +414,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                     <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <div>
                       <div className="font-semibold">Nhập Khoản Thu riêng</div>
-                      <div className="text-[10px] text-slate-500">File học phí, tiền ăn, phụ thu</div>
+                      <div className="text-[10px] text-slate-500">File doanh thu, thu nhập, thưởng</div>
                     </div>
                   </button>
 
@@ -252,7 +429,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                     <ArrowDownRight className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                     <div>
                       <div className="font-semibold">Nhập Khoản Chi riêng</div>
-                      <div className="text-[10px] text-slate-500">File thực phẩm, CSVC, hóa đơn</div>
+                      <div className="text-[10px] text-slate-500">File thực phẩm, CSVC, sinh hoạt</div>
                     </div>
                   </button>
 
@@ -312,6 +489,130 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               <span>Bảng</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* BUDGET ALERT MONITOR BANNER (TRIGGERS WHEN EXCEEDING 80% OR 100%)         */}
+      {/* ========================================================================= */}
+      <div className="p-3 sm:p-4 bg-slate-50/50 border-b border-slate-200">
+        <div
+          className={`p-3 sm:p-4 rounded-xl border transition-all ${
+            budgetStats.exceededCount > 0
+              ? 'bg-rose-50/80 border-rose-200 text-rose-950'
+              : budgetStats.warningCount > 0
+              ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+              : 'bg-white border-slate-200/90 text-slate-800'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <div
+                className={`p-2 rounded-lg shrink-0 ${
+                  budgetStats.exceededCount > 0
+                    ? 'bg-rose-600 text-white shadow-2xs'
+                    : budgetStats.warningCount > 0
+                    ? 'bg-amber-500 text-white shadow-2xs'
+                    : 'bg-slate-900 text-white'
+                }`}
+              >
+                {budgetStats.exceededCount > 0 ? (
+                  <AlertTriangle className="w-5 h-5 animate-pulse" />
+                ) : budgetStats.warningCount > 0 ? (
+                  <AlertCircle className="w-5 h-5" />
+                ) : (
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-bold text-sm sm:text-base tracking-tight">
+                    Hệ Thống Cảnh Báo Ngân Sách Chi Tiêu
+                  </h4>
+                  {budgetStats.exceededCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-600 text-white animate-pulse shadow-2xs">
+                      ⚠️ {budgetStats.exceededCount} mục VƯỢT NGÂN SÁCH (100%+)
+                    </span>
+                  )}
+                  {budgetStats.warningCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500 text-white shadow-2xs">
+                      ⚡ {budgetStats.warningCount} mục SẮP CHẠM MỨC (80% - 99%)
+                    </span>
+                  )}
+                  {!budgetStats.hasAlerts && budgetStats.totalBudgetedCategories > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      ✅ Tất cả danh mục trong tầm kiểm soát
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Tổng hạn mức đã đặt:{' '}
+                  <strong className="font-mono text-slate-900 font-bold">
+                    {formatVND(budgetStats.totalBudget)}
+                  </strong>{' '}
+                  · Đã chi:{' '}
+                  <strong
+                    className={`font-mono font-bold ${
+                      budgetStats.totalBudgetedSpent > budgetStats.totalBudget
+                        ? 'text-rose-600'
+                        : 'text-slate-900'
+                    }`}
+                  >
+                    {formatVND(budgetStats.totalBudgetedSpent)}
+                  </strong>{' '}
+                  ({budgetStats.totalBudget > 0
+                    ? ((budgetStats.totalBudgetedSpent / budgetStats.totalBudget) * 100).toFixed(1)
+                    : 0}
+                  %)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={onOpenCategoryManager}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+              >
+                <Target className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Cài Đặt Hạn Mức</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Alert Filter Tags */}
+          {budgetStats.hasAlerts && (
+            <div className="mt-2.5 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="font-semibold text-[11px] text-slate-500">Chi tiết cảnh báo:</span>
+              {budgetStats.exceededList.map((item) => (
+                <button
+                  key={item.cat.id}
+                  onClick={() => onFilterByCategory(item.cat.id)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-100 hover:bg-rose-200 text-rose-900 border border-rose-300 font-medium cursor-pointer transition-colors"
+                  title={`Bấm để xem các giao dịch của mục "${item.cat.name}"`}
+                >
+                  <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                  <span className="font-bold">{item.cat.name}</span>
+                  <span className="font-mono font-bold text-rose-700">
+                    ({(item.ratio * 100).toFixed(0)}%)
+                  </span>
+                </button>
+              ))}
+              {budgetStats.warningList.map((item) => (
+                <button
+                  key={item.cat.id}
+                  onClick={() => onFilterByCategory(item.cat.id)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-medium cursor-pointer transition-colors"
+                  title={`Bấm để xem các giao dịch của mục "${item.cat.name}"`}
+                >
+                  <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                  <span>{item.cat.name}</span>
+                  <span className="font-mono font-bold text-amber-800">
+                    ({(item.ratio * 100).toFixed(0)}%)
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -389,7 +690,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                         {cat.name}
                       </span>
                       {data.count > 0 && (
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono">
+                        <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-mono">
                           {data.count} GD
                         </span>
                       )}
@@ -451,7 +752,13 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
         )}
 
         {/* SECTION 2: CHI PHÍ - MOBILE */}
-        <div className="bg-indigo-50/70 border-y border-indigo-200 p-3 sm:p-4">
+        <div
+          className={`border-y p-3 sm:p-4 ${
+            isBusiness
+              ? 'bg-indigo-50/70 border-indigo-200'
+              : `${theme.accentBgLight} border ${theme.accentBorderLight}`
+          }`}
+        >
           <div className="flex items-center justify-between">
             <button
               onClick={() => setExpandedSection((prev) => ({ ...prev, expense: !prev.expense }))}
@@ -462,7 +769,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               ) : (
                 <ChevronRight className="w-4 h-4 text-indigo-800" />
               )}
-              <span className="font-bold text-indigo-950 text-sm tracking-wide">
+              <span className="font-bold text-slate-900 text-sm tracking-wide">
                 CHI PHÍ ({expenseCategories.length} MỤC)
               </span>
             </button>
@@ -504,66 +811,81 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
             {expenseCategories.map((cat, idx) => {
               const data = categoryMap[cat.id] || { total: 0, count: 0, txs: [] };
               const sharePercent = totalExpense > 0 ? (data.total / totalExpense) * 100 : 0;
+              const hasBudget = Boolean(cat.monthlyBudget && cat.monthlyBudget > 0);
+              const budgetRatio = hasBudget ? data.total / (cat.monthlyBudget || 1) : 0;
+              const isOver100 = budgetRatio >= 1.0;
+              const isOver80 = budgetRatio >= 0.8 && !isOver100;
 
               return (
                 <div
                   key={cat.id}
-                  className="p-3 sm:p-3.5 hover:bg-slate-50 transition-colors flex items-center justify-between gap-2"
+                  className={`p-3 sm:p-3.5 transition-colors ${
+                    isOver100
+                      ? 'bg-rose-50/70 border-l-4 border-l-rose-500'
+                      : isOver80
+                      ? 'bg-amber-50/60 border-l-4 border-l-amber-500'
+                      : 'hover:bg-slate-50'
+                  }`}
                 >
-                  <div
-                    onClick={() => onFilterByCategory(cat.id)}
-                    className="flex-1 min-w-0 cursor-pointer pr-1"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-mono text-slate-400 w-4">{idx + 1}.</span>
-                      <span className="font-semibold text-slate-900 text-xs sm:text-sm truncate">
-                        {cat.name}
-                      </span>
-                      {data.count > 0 && (
-                        <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-mono">
-                          {data.count} GD
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      onClick={() => onFilterByCategory(cat.id)}
+                      className="flex-1 min-w-0 cursor-pointer pr-1"
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] font-mono text-slate-400 w-4">{idx + 1}.</span>
+                        <span className="font-semibold text-slate-900 text-xs sm:text-sm truncate">
+                          {cat.name}
                         </span>
-                      )}
+                        {data.count > 0 && (
+                          <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-mono">
+                            {data.count} GD
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                        <span>{cat.group || 'Chung'}</span>
+                        <span>·</span>
+                        <span>{sharePercent.toFixed(1)}% tỷ trọng</span>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
-                      <span>{cat.group || 'Chung'}</span>
-                      <span>·</span>
-                      <span>{sharePercent.toFixed(1)}%</span>
+
+                    {/* Actions on Category */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <div className="text-right mr-1">
+                        <div className="font-bold font-mono text-rose-600 text-xs sm:text-sm">
+                          {formatVND(data.total)}
+                        </div>
+                      </div>
+                      {/* Sửa hạng mục & hạn mức */}
+                      <button
+                        onClick={() => onOpenEditCategoryModal(cat)}
+                        title="Sửa tên & hạn mức"
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      {/* Xóa hạng mục */}
+                      <button
+                        onClick={() => handleDeletePrompt(cat)}
+                        title="Xóa hạng mục"
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      {/* Thêm số tiền chi */}
+                      <button
+                        onClick={() => onOpenNewTxWithCategory(cat)}
+                        title={`Ghi khoản chi ${cat.name}`}
+                        className="w-7 h-7 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 flex items-center justify-center transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
 
-                  {/* Actions on Category */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    <div className="text-right mr-1">
-                      <div className="font-bold font-mono text-rose-600 text-xs sm:text-sm">
-                        {formatVND(data.total)}
-                      </div>
-                    </div>
-                    {/* Sửa hạng mục */}
-                    <button
-                      onClick={() => onOpenEditCategoryModal(cat)}
-                      title="Sửa tên hạng mục"
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    {/* Xóa hạng mục */}
-                    <button
-                      onClick={() => handleDeletePrompt(cat)}
-                      title="Xóa hạng mục"
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                    {/* Thêm số tiền chi */}
-                    <button
-                      onClick={() => onOpenNewTxWithCategory(cat)}
-                      title={`Ghi khoản chi ${cat.name}`}
-                      className="w-7 h-7 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 flex items-center justify-center transition-colors cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {/* Visual Budget Alert Indicator on Mobile */}
+                  {renderBudgetIndicator(cat, data.total, true)}
                 </div>
               );
             })}
@@ -585,7 +907,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
         <div className="p-4 bg-amber-50/70 border-t-2 border-amber-300">
           <div className="flex items-center justify-between">
             <span className="font-bold text-slate-900 uppercase text-xs sm:text-sm">
-              LỜI / LỖ (THẶNG DƯ)
+              {isBusiness ? 'LỜI / LỖ (THẶNG DƯ)' : 'TÍCH LŨY / DƯ THÁNG'}
             </span>
             <span
               className={`font-mono tabular-nums font-extrabold text-base sm:text-lg ${
@@ -598,7 +920,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
 
           <div className="flex items-center justify-between mt-2 pt-2 border-t border-amber-200 text-xs">
             <span className="text-slate-600 uppercase font-medium">
-              % ON REV (TỶ SUẤT LN / DOANH THU)
+              {isBusiness ? '% ON REV (TỶ SUẤT LN / DOANH THU)' : 'TỶ LỆ TIẾT KIỆM / THU NHẬP'}
             </span>
             <span
               className={`font-mono tabular-nums font-bold text-sm ${
@@ -615,15 +937,16 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
       {/* 2. FULL DESKTOP SPREADSHEET TABLE                                         */}
       {/* ========================================================================= */}
       <div className={`${mobileViewMode === 'table' ? 'block' : 'hidden md:block'} overflow-x-auto`}>
-        <table className="w-full text-left border-collapse text-sm min-w-[700px]">
+        <table className="w-full text-left border-collapse text-sm min-w-[760px]">
           <thead>
             <tr className="border-b border-slate-200 text-xs font-semibold text-slate-600 bg-slate-100/70 uppercase tracking-wider">
               <th className="py-2.5 px-3 sm:px-4 w-12 text-center">STT</th>
-              <th className="py-2.5 px-3 sm:px-4 min-w-[200px]">Hạng Mục Thu / Chi</th>
-              <th className="py-2.5 px-3 sm:px-4 hidden sm:table-cell min-w-[130px]">Phân Nhóm</th>
-              <th className="py-2.5 px-3 sm:px-4 text-center hidden md:table-cell w-20">Số GD</th>
-              <th className="py-2.5 px-3 sm:px-4 text-right min-w-[140px]">Số Tiền (VNĐ)</th>
-              <th className="py-2.5 px-3 sm:px-4 text-right w-24">% Tỷ Trọng</th>
+              <th className="py-2.5 px-3 sm:px-4 min-w-[190px]">Hạng Mục Thu / Chi</th>
+              <th className="py-2.5 px-3 sm:px-4 hidden sm:table-cell min-w-[120px]">Phân Nhóm</th>
+              <th className="py-2.5 px-3 sm:px-4 text-center hidden md:table-cell w-16">Số GD</th>
+              <th className="py-2.5 px-3 sm:px-4 text-right min-w-[130px]">Số Tiền (VNĐ)</th>
+              <th className="py-2.5 px-3 sm:px-4 min-w-[170px] text-center">Hạn Mức & Cảnh Báo</th>
+              <th className="py-2.5 px-3 sm:px-4 text-right w-20">% Tỷ Trọng</th>
               <th className="py-2.5 px-3 text-center w-28">Thao Tác</th>
             </tr>
           </thead>
@@ -642,11 +965,13 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                   ) : (
                     <ChevronRight className="w-4 h-4 text-emerald-800" />
                   )}
-                  <span className="tracking-wide">DOANH THU (THU)</span>
+                  <span className="tracking-wide">
+                    {isBusiness ? 'DOANH THU (THU)' : 'TỔNG THU NHẬP (THU)'}
+                  </span>
                 </button>
               </td>
               <td className="py-2.5 px-3 sm:px-4 hidden sm:table-cell text-xs text-emerald-800 font-medium">
-                Học phí & các khoản thu
+                {isBusiness ? 'Doanh thu & các khoản thu' : 'Lương, thưởng & thu phụ'}
               </td>
               <td className="py-2.5 px-3 sm:px-4 text-center hidden md:table-cell text-emerald-800 text-xs font-mono">
                 {incomeCategories.reduce(
@@ -656,6 +981,9 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               </td>
               <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-emerald-800 font-bold text-base">
                 {formatVND(totalRevenue)}
+              </td>
+              <td className="py-2.5 px-3 sm:px-4 text-center text-xs text-emerald-700 font-medium">
+                Khoản thu vào
               </td>
               <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-emerald-800 text-xs font-semibold">
                 100%
@@ -734,6 +1062,9 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                         <span className="text-slate-300">0 ₫</span>
                       )}
                     </td>
+                    <td className="py-2.5 px-3 sm:px-4 text-center text-xs text-slate-400">
+                      -
+                    </td>
                     <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-xs text-slate-600">
                       {data.total > 0 ? `${sharePercent.toFixed(1)}%` : '0%'}
                     </td>
@@ -769,7 +1100,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
             {/* Income Add Row */}
             {expandedSection.income && (
               <tr className="bg-emerald-50/20 hover:bg-emerald-50/40">
-                <td colSpan={7} className="py-2 px-4 text-center">
+                <td colSpan={8} className="py-2 px-4 text-center">
                   <button
                     onClick={() => onOpenAddCategoryModal('thu')}
                     className="text-xs font-semibold text-emerald-800 hover:underline inline-flex items-center gap-1.5 cursor-pointer"
@@ -782,7 +1113,11 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
             )}
 
             {/* CHI PHÍ HEADER */}
-            <tr className="bg-indigo-100/80 border-y border-indigo-200 font-bold text-indigo-950">
+            <tr
+              className={`border-y font-bold text-slate-900 ${
+                isBusiness ? 'bg-indigo-100/80 border-indigo-200' : `${theme.accentBgLight} border ${theme.accentBorderLight}`
+              }`}
+            >
               <td colSpan={2} className="py-2.5 px-3 sm:px-4">
                 <button
                   onClick={() =>
@@ -795,13 +1130,15 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                   ) : (
                     <ChevronRight className="w-4 h-4 text-indigo-800" />
                   )}
-                  <span className="tracking-wide">CHI PHÍ</span>
+                  <span className="tracking-wide">
+                    {isBusiness ? 'CHI PHÍ HOẠT ĐỘNG' : 'TỔNG CHI TIÊU GIA ĐÌNH'}
+                  </span>
                 </button>
               </td>
-              <td className="py-2.5 px-3 sm:px-4 hidden sm:table-cell text-xs text-indigo-800 font-medium">
-                Vận hành, nhân sự, cơ sở vật chất
+              <td className="py-2.5 px-3 sm:px-4 hidden sm:table-cell text-xs text-slate-600 font-medium">
+                {isBusiness ? 'Vận hành, nhân sự, CSVC' : 'Sinh hoạt, nhà cửa, con cái'}
               </td>
-              <td className="py-2.5 px-3 sm:px-4 text-center hidden md:table-cell text-indigo-800 text-xs font-mono">
+              <td className="py-2.5 px-3 sm:px-4 text-center hidden md:table-cell text-slate-600 text-xs font-mono">
                 {expenseCategories.reduce(
                   (sum, cat) => sum + (categoryMap[cat.id]?.count || 0),
                   0
@@ -810,7 +1147,16 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-rose-700 font-bold text-base">
                 {formatVND(totalExpense)}
               </td>
-              <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-indigo-800 text-xs font-semibold">
+              <td className="py-2.5 px-3 sm:px-4 text-center text-xs text-slate-600 font-medium">
+                {budgetStats.totalBudget > 0 ? (
+                  <span>
+                    Tổng NS: <strong className="font-mono">{formatVND(budgetStats.totalBudget)}</strong>
+                  </span>
+                ) : (
+                  <span>Chưa đặt ngân sách</span>
+                )}
+              </td>
+              <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-slate-800 text-xs font-semibold">
                 100%
               </td>
               <td className="py-2.5 px-3 text-center">
@@ -850,11 +1196,21 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               expenseCategories.map((cat, idx) => {
                 const data = categoryMap[cat.id] || { total: 0, count: 0, txs: [] };
                 const sharePercent = totalExpense > 0 ? (data.total / totalExpense) * 100 : 0;
+                const hasBudget = Boolean(cat.monthlyBudget && cat.monthlyBudget > 0);
+                const budgetRatio = hasBudget ? data.total / (cat.monthlyBudget || 1) : 0;
+                const isOver100 = budgetRatio >= 1.0;
+                const isOver80 = budgetRatio >= 0.8 && !isOver100;
 
                 return (
                   <tr
                     key={cat.id}
-                    className="hover:bg-slate-50 transition-colors group text-slate-800"
+                    className={`transition-colors group text-slate-800 ${
+                      isOver100
+                        ? 'bg-rose-50/70 hover:bg-rose-100/60 border-l-4 border-l-rose-500'
+                        : isOver80
+                        ? 'bg-amber-50/60 hover:bg-amber-100/50 border-l-4 border-l-amber-500'
+                        : 'hover:bg-slate-50'
+                    }`}
                   >
                     <td className="py-2.5 px-3 sm:px-4 text-center font-mono text-xs text-slate-400">
                       {idx + 1}
@@ -864,7 +1220,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                         onClick={() => onFilterByCategory(cat.id)}
                         className="font-medium text-slate-900 hover:text-indigo-600 text-left flex items-center gap-1.5 cursor-pointer"
                       >
-                        <span>{cat.name}</span>
+                        <span className={isOver100 ? 'text-rose-950 font-bold' : ''}>{cat.name}</span>
                         {data.count > 0 && (
                           <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-colors" />
                         )}
@@ -882,10 +1238,16 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                     </td>
                     <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums font-semibold text-slate-900">
                       {data.total > 0 ? (
-                        <span className="text-rose-600">{formatVND(data.total)}</span>
+                        <span className={isOver100 ? 'text-rose-700 font-bold' : 'text-rose-600'}>
+                          {formatVND(data.total)}
+                        </span>
                       ) : (
                         <span className="text-slate-300">0 ₫</span>
                       )}
+                    </td>
+                    {/* HẠN MỨC & TIẾN ĐỘ / CẢNH BÁO */}
+                    <td className="py-2 px-3 sm:px-4">
+                      {renderBudgetIndicator(cat, data.total, false)}
                     </td>
                     <td className="py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums text-xs text-slate-600">
                       {data.total > 0 ? `${sharePercent.toFixed(1)}%` : '0%'}
@@ -901,7 +1263,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
                         </button>
                         <button
                           onClick={() => onOpenEditCategoryModal(cat)}
-                          title={`Sửa tên hạng mục "${cat.name}"`}
+                          title={`Sửa tên & hạn mức danh mục "${cat.name}"`}
                           className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -922,7 +1284,7 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
             {/* Expense Add Row */}
             {expandedSection.expense && (
               <tr className="bg-rose-50/20 hover:bg-rose-50/40">
-                <td colSpan={7} className="py-2 px-4 text-center">
+                <td colSpan={8} className="py-2 px-4 text-center">
                   <button
                     onClick={() => onOpenAddCategoryModal('chi')}
                     className="text-xs font-semibold text-rose-800 hover:underline inline-flex items-center gap-1.5 cursor-pointer"
@@ -937,10 +1299,12 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
             {/* RESULTS ROW */}
             <tr className="bg-amber-100/70 border-t-2 border-slate-300 font-bold text-slate-900 text-base">
               <td colSpan={2} className="py-3 px-3 sm:px-4">
-                <span className="tracking-wide uppercase text-slate-900">LỜI / LỖ (THẶNG DƯ)</span>
+                <span className="tracking-wide uppercase text-slate-900">
+                  {isBusiness ? 'LỜI / LỖ (THẶNG DƯ)' : 'TÍCH LŨY / DƯ THÁNG'}
+                </span>
               </td>
               <td colSpan={2} className="py-3 px-3 sm:px-4 hidden sm:table-cell text-xs text-slate-600 font-normal">
-                Doanh thu trừ Chi phí
+                {isBusiness ? 'Doanh thu trừ Chi phí' : 'Thu nhập trừ Chi tiêu'}
               </td>
               <td
                 className={`py-3 px-3 sm:px-4 text-right font-mono tabular-nums font-extrabold text-base sm:text-lg ${
@@ -949,13 +1313,17 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               >
                 {formatVND(profit)}
               </td>
-              <td colSpan={2} className="py-3 px-3 sm:px-4 text-right">
+              <td colSpan={3} className="py-3 px-3 sm:px-4 text-right">
                 <span
                   className={`text-xs font-semibold px-2 py-0.5 rounded-md ${
                     isProfitable ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-200 text-rose-900'
                   }`}
                 >
-                  {isProfitable ? 'CÓ LÃI' : 'THÂM HỤT'}
+                  {isProfitable
+                    ? isBusiness
+                      ? 'CÓ LÃI'
+                      : 'CÓ TÍCH LŨY'
+                    : 'THÂM HỤT'}
                 </span>
               </td>
             </tr>
@@ -963,11 +1331,11 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
             <tr className="bg-slate-100 border-t border-slate-200 font-semibold text-slate-800">
               <td colSpan={2} className="py-2.5 px-3 sm:px-4">
                 <span className="tracking-wide uppercase text-xs text-slate-600">
-                  % ON REV (TỶ SUẤT LN / DOANH THU)
+                  {isBusiness ? '% ON REV (TỶ SUẤT LN / DOANH THU)' : 'TỶ LỆ TIẾT KIỆM / THU NHẬP'}
                 </span>
               </td>
               <td colSpan={2} className="py-2.5 px-3 sm:px-4 hidden sm:table-cell text-xs text-slate-500 font-normal">
-                Lợi nhuận chia Doanh thu
+                {isBusiness ? 'Lợi nhuận chia Doanh thu' : 'Số dư tích lũy chia Thu nhập'}
               </td>
               <td
                 className={`py-2.5 px-3 sm:px-4 text-right font-mono tabular-nums font-bold ${
@@ -976,17 +1344,82 @@ export const SpreadsheetView: React.FC<SpreadsheetViewProps> = ({
               >
                 {formatPercent(marginPercent)}
               </td>
-              <td colSpan={2} className="py-2.5 px-3 sm:px-4 text-right text-xs text-slate-500">
+              <td colSpan={3} className="py-2.5 px-3 sm:px-4 text-right text-xs text-slate-500">
                 {marginPercent > 20
-                  ? 'Hiệu quả cao'
+                  ? 'Tài chính vững chắc'
                   : marginPercent > 0
-                  ? 'Đạt mục tiêu'
-                  : 'Cần cân đối chi phí'}
+                  ? 'Đạt mục tiêu ngân sách'
+                  : 'Cần cân đối giảm chi phí'}
               </td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      {/* MODAL XÁC NHẬN XÓA HẠNG MỤC */}
+      {deleteConfirmCat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 sm:p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">
+                Xác nhận xóa hạng mục?
+              </h3>
+              <p className="text-xs text-slate-500 mb-4">
+                Bạn có chắc chắn muốn xóa hạng mục này khỏi danh mục hệ thống?
+              </p>
+
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-left text-xs space-y-1.5 mb-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Tên hạng mục:</span>
+                  <span className="font-bold text-slate-900">{deleteConfirmCat.cat.name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Phân loại:</span>
+                  <span className={`font-semibold ${deleteConfirmCat.cat.type === 'thu' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {deleteConfirmCat.cat.type === 'thu' ? 'Khoản Thu' : 'Khoản Chi'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Số giao dịch hiện tại:</span>
+                  <span className={`font-mono font-bold ${deleteConfirmCat.count > 0 ? 'text-amber-600' : 'text-slate-700'}`}>
+                    {deleteConfirmCat.count} giao dịch
+                  </span>
+                </div>
+                {deleteConfirmCat.count > 0 && (
+                  <div className="p-2 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-800 flex items-start gap-1.5 mt-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <span>Hạng mục này đang có giao dịch phát sinh. Xóa hạng mục sẽ không xóa lịch sử giao dịch nhưng sẽ mất phân loại nhóm.</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmCat(null)}
+                  className="w-full py-2.5 px-3 text-xs sm:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteCategory(deleteConfirmCat.cat.id);
+                    setDeleteConfirmCat(null);
+                  }}
+                  className="w-full py-2.5 px-3 text-xs sm:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Xác nhận xóa</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
