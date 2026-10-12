@@ -14,6 +14,10 @@ import {
   FileSpreadsheet,
   Upload,
   ChevronDown,
+  Image as ImageIcon,
+  Download,
+  Receipt,
+  Maximize2,
 } from 'lucide-react';
 import { Transaction, CategoryItem, AppMode, HomeThemeColor } from '../types/finance';
 import { formatVND, formatDateVN, normalizeVietnamese } from '../utils/formatters';
@@ -79,7 +83,10 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   const [typeFilter, setTypeFilter] = useState<'all' | 'thu' | 'chi'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>(initialCategoryFilter || 'all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'tien_mat' | 'chuyen_khoan'>('all');
+  const [receiptFilter, setReceiptFilter] = useState<'all' | 'has_receipt' | 'no_receipt'>('all');
+  const [selectedReceiptTx, setSelectedReceiptTx] = useState<Transaction | null>(null);
   const [deleteConfirmTx, setDeleteConfirmTx] = useState<Transaction | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Dropdown states for separate Export & Import
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -100,6 +107,27 @@ export const TransactionList: React.FC<TransactionListProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Quick keyboard shortcut: '/' to focus search input, 'Esc' to clear
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === '/' &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA' &&
+        document.activeElement?.tagName !== 'SELECT'
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === 'Escape' && document.activeElement === searchInputRef.current) {
+        setSearchTerm('');
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   React.useEffect(() => {
     if (initialCategoryFilter) {
       setCategoryFilter(initialCategoryFilter);
@@ -113,11 +141,14 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   const filteredTransactions = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     const queryNorm = normalizeVietnamese(query);
+    const cleanNum = query.replace(/[.,\sđd]/g, '');
 
     return transactions.filter((tx) => {
       if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
       if (categoryFilter !== 'all' && tx.categoryId !== categoryFilter) return false;
       if (paymentFilter !== 'all' && tx.paymentMethod !== paymentFilter) return false;
+      if (receiptFilter === 'has_receipt' && !tx.receiptImage) return false;
+      if (receiptFilter === 'no_receipt' && tx.receiptImage) return false;
 
       if (query !== '') {
         const note = (tx.note || '').toLowerCase();
@@ -132,16 +163,41 @@ export const TransactionList: React.FC<TransactionListProps> = ({
         const student = (tx.studentName || '').toLowerCase();
         const studentNorm = normalizeVietnamese(tx.studentName || '');
 
+        const refCode = (tx.referenceCode || '').toLowerCase();
+
         const matchNote = note.includes(query) || noteNorm.includes(queryNorm);
         const matchPerson = person.includes(query) || personNorm.includes(queryNorm);
         const matchCat = cat.includes(query) || catNorm.includes(queryNorm);
         const matchStudent = student.includes(query) || studentNorm.includes(queryNorm);
+        const matchRef = refCode.includes(query);
 
-        if (!matchNote && !matchPerson && !matchCat && !matchStudent) return false;
+        // Date search (e.g., 2026-10-02, 02/10, 02/10/2026)
+        const dateFormatted = formatDateVN(tx.date);
+        const matchDate = tx.date.includes(query) || dateFormatted.includes(query);
+
+        // Amount search (e.g., 2000000, 2.000.000, 2tr, 350k)
+        let matchAmount = false;
+        if (cleanNum && !isNaN(Number(cleanNum)) && cleanNum.length >= 2) {
+          matchAmount = String(tx.amount).includes(cleanNum);
+        } else if (query.includes('tr') || query.includes('trieu') || query.includes('triệu')) {
+          const numPart = parseFloat(query.replace(/[^\d.,]/g, '').replace(',', '.'));
+          if (!isNaN(numPart)) {
+            matchAmount = tx.amount === Math.round(numPart * 1000000);
+          }
+        } else if (query.includes('k') || query.includes('nghin') || query.includes('ngàn')) {
+          const numPart = parseFloat(query.replace(/[^\d.,]/g, '').replace(',', '.'));
+          if (!isNaN(numPart)) {
+            matchAmount = tx.amount === Math.round(numPart * 1000);
+          }
+        }
+
+        if (!matchNote && !matchPerson && !matchCat && !matchStudent && !matchRef && !matchDate && !matchAmount) {
+          return false;
+        }
       }
       return true;
     });
-  }, [transactions, typeFilter, categoryFilter, paymentFilter, searchTerm]);
+  }, [transactions, typeFilter, categoryFilter, paymentFilter, receiptFilter, searchTerm]);
 
   const sortedTransactions = useMemo(() => {
     return [...filteredTransactions].sort((a, b) => {
@@ -157,6 +213,10 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   const totalFilteredChi = filteredTransactions
     .filter((t) => t.type === 'chi')
     .reduce((sum, t) => sum + t.amount, 0);
+
+  const quickTags = isBusiness
+    ? ['Học phí', 'Tiền ăn', 'Lương', 'Thực phẩm', 'CSVC', 'Điện nước', 'Chuyển khoản', 'Tiền mặt']
+    : ['Ăn uống', 'Đi chợ', 'Tiền điện', 'Tiền nước', 'Học phí con', 'Lương', 'Mua sắm', 'Xăng xe'];
 
   const thuCount = transactions.filter((t) => t.type === 'thu').length;
   const chiCount = transactions.filter((t) => t.type === 'chi').length;
@@ -370,30 +430,84 @@ export const TransactionList: React.FC<TransactionListProps> = ({
         </div>
 
         {/* THANH TÌM KIẾM CHÍNH (PROMINENT SEARCH BAR) */}
-        <div className="space-y-2 bg-slate-50/70 p-2.5 sm:p-3 rounded-xl border border-slate-200/80">
+        <div className="bg-gradient-to-r from-slate-50 via-white to-slate-50 p-3 sm:p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <label
+              htmlFor="tx-search-input"
+              className="text-xs font-bold text-slate-800 flex items-center gap-1.5"
+            >
+              <Search className={`w-3.5 h-3.5 ${isBusiness ? 'text-red-600' : theme.accentText}`} />
+              <span>Tìm kiếm nhanh giao dịch:</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
+                Bấm <kbd className="font-semibold text-slate-600">/</kbd> để tìm
+              </span>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Xóa tìm kiếm</span>
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="relative flex items-center">
-            <Search className="w-4 sm:w-5 h-4 sm:h-5 text-red-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search
+              className={`w-4 sm:w-5 h-4 sm:h-5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
+                searchTerm ? (isBusiness ? 'text-red-600' : theme.accentText) : 'text-slate-400'
+              }`}
+            />
             <input
+              ref={searchInputRef}
+              id="tx-search-input"
               type="text"
-              placeholder="🔍 Tìm nhanh theo tên người nhận/nộp (Phụ huynh, Giáo viên, NCC...) hoặc nội dung ghi chú..."
+              placeholder={
+                isBusiness
+                  ? 'Tìm nhanh theo tên nội dung, ghi chú, người nhận/nộp, số tiền (VD: học phí, tiền ăn, 2tr)...'
+                  : 'Tìm nhanh theo nội dung thu chi, ghi chú, nơi chi tiêu, số tiền (VD: đi chợ, tiền điện, 500k)...'
+              }
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 sm:pl-10 pr-24 sm:pr-28 py-2 sm:py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-red-600 focus:ring-2 focus:ring-red-100 transition-all shadow-2xs"
+              className={`w-full pl-9 sm:pl-10 pr-24 sm:pr-32 py-2 sm:py-2.5 text-xs sm:text-sm border rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-hidden transition-all shadow-2xs ${
+                searchTerm
+                  ? isBusiness
+                    ? 'border-red-500 ring-2 ring-red-100'
+                    : 'border-indigo-500 ring-2 ring-indigo-100'
+                  : isBusiness
+                  ? 'border-slate-300 hover:border-slate-400 focus:border-red-600 focus:ring-2 focus:ring-red-100'
+                  : 'border-slate-300 hover:border-slate-400 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100'
+              }`}
             />
             {/* Inside Right Controls */}
             <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
               {searchTerm && (
                 <button
                   type="button"
-                  onClick={() => setSearchTerm('')}
-                  title="Xóa từ khóa tìm kiếm"
-                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full cursor-pointer transition-colors"
+                  onClick={() => {
+                    setSearchTerm('');
+                    searchInputRef.current?.focus();
+                  }}
+                  title="Xóa từ khóa tìm kiếm (Esc)"
+                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
               {searchTerm && (
-                <span className="text-[11px] font-semibold bg-red-100/90 text-red-800 px-2 py-0.5 rounded-full border border-red-200 hidden xs:inline-block">
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full border hidden xs:inline-block font-mono ${
+                    filteredTransactions.length > 0
+                      ? isBusiness
+                        ? 'bg-red-50 text-red-700 border-red-200'
+                        : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                >
                   {filteredTransactions.length} GD
                 </span>
               )}
@@ -402,33 +516,26 @@ export const TransactionList: React.FC<TransactionListProps> = ({
 
           {/* Quick Filter Tags / Suggestions */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs pt-0.5">
-            <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+            <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1 shrink-0">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Gợi ý tìm nhanh:</span>
             </span>
-            {['Doanh thu', 'Tiền ăn', 'Lương', 'Thực phẩm', 'Khách hàng', 'CSVC', 'Chuyển khoản'].map((tag) => (
+            {quickTags.map((tag) => (
               <button
                 key={tag}
                 type="button"
                 onClick={() => setSearchTerm(tag === searchTerm ? '' : tag)}
-                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors cursor-pointer border ${
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-colors cursor-pointer border ${
                   searchTerm.toLowerCase() === tag.toLowerCase()
-                    ? 'bg-red-600 text-white border-red-600 font-semibold shadow-2xs'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                    ? isBusiness
+                      ? 'bg-red-600 text-white border-red-600 font-semibold shadow-2xs'
+                      : 'bg-indigo-600 text-white border-indigo-600 font-semibold shadow-2xs'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900 shadow-2xs'
                 }`}
               >
                 {tag}
               </button>
             ))}
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="text-[11px] text-red-600 hover:underline font-semibold ml-auto cursor-pointer"
-              >
-                Xóa tìm kiếm
-              </button>
-            )}
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -13,7 +14,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Initialize Gemini SDK with User-Agent as required by Gemini API skill
 const apiKey = process.env.GEMINI_API_KEY;
@@ -274,19 +276,196 @@ Quy tắc phân tích:
   }
 });
 
+// AI Endpoint to scan and OCR invoice / bank transfer slip / receipt image
+app.post('/api/ai/scan-receipt', async (req, res) => {
+  try {
+    const { image, mode = 'business', currentCategories = [] } = req.body;
+
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ error: 'Hình ảnh hóa đơn không hợp lệ' });
+    }
+
+    // Extract mimeType and base64Data
+    let mimeType = 'image/jpeg';
+    let base64Data = image;
+
+    if (image.startsWith('data:')) {
+      const match = image.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      }
+    }
+
+    const categoriesList = Array.isArray(currentCategories) ? currentCategories : [];
+    const categoriesContext = categoriesList
+      .map((c: any) => `- [${(c.type || 'chi').toUpperCase()}] ID: "${c.id}", Tên: "${c.name}"`)
+      .join('\n');
+
+    if (!ai) {
+      return res.json({
+        success: true,
+        extracted: {
+          type: 'chi',
+          amount: 0,
+          date: new Date().toISOString().split('T')[0],
+          payerOrReceiver: '',
+          note: 'Hóa đơn / chứng từ tải lên',
+          paymentMethod: 'chuyen_khoan',
+          referenceCode: '',
+          matchedCategoryId: '',
+          matchedCategoryName: '',
+          aiSummary: 'Đã nhận hình ảnh hóa đơn. Vui lòng kiểm tra và điền số tiền trước khi lưu.',
+        },
+      });
+    }
+
+    const prompt = `Bạn là Trợ lý Kế toán & OCR Hóa đơn / Biên nhận chuyển khoản của phần mềm Quản lý Thu Chi (${mode === 'home' ? 'Sổ Thu Chi Gia Đình' : 'Trường Mầm Non'}).
+Nhiệm vụ của bạn là đọc kỹ bức ảnh được gửi kèm (hóa đơn bán lẻ, biên lai chuyển khoản ngân hàng, thông báo biến động số dư, bill thanh toán, phiếu thu, phiếu chi, hoặc biên lai học phí).
+Hãy phân tích cẩn thận các thông tin trên ảnh và trích xuất dữ liệu kế toán chuẩn xác.
+
+Danh sách danh mục có sẵn trong hệ thống:
+${categoriesContext}
+
+Quy tắc trích xuất:
+1. "amount": Số tiền thanh toán / số tiền chuyển khoản (VND) dạng số nguyên. Hãy tìm dòng ghi số tiền lớn nhất hoặc số tiền thực trả/giao dịch thành công (ví dụ: "Số tiền: 1,500,000 VND" -> 1500000).
+2. "type":
+   - 'thu': nếu là tiền nhận vào, học phí nộp vào, phụ huynh đóng tiền, hoặc biên lai ghi 'Chuyển tiền đến / Nhận tiền'.
+   - 'chi': nếu là tiền chuyển đi, mua hàng siêu thị, nhà hàng, thanh toán tiền điện, hóa đơn mua đồ, phiếu chi.
+3. "date": Ngày giao dịch dạng YYYY-MM-DD. Nếu trên biên nhận có ngày giờ (VD: 11/10/2026), hãy chuyển thành YYYY-MM-DD. Nếu không thấy rõ, lấy ngày hôm nay: ${new Date().toISOString().split('T')[0]}.
+4. "payerOrReceiver":
+   - Nếu là 'thu': Tên người chuyển / phụ huynh / học sinh / người nộp.
+   - Nếu là 'chi': Tên người thụ hưởng, tên cửa hàng, siêu thị, nhà cung cấp, hoặc người nhận.
+5. "note": Nội dung chuyển khoản hoặc tóm tắt các món hàng mua / lý do thanh toán (VD: "Đóng học phí tháng 10 bé Mai", "Mua sữa và thực phẩm tươi sống", "Tiền điện tháng 10").
+6. "paymentMethod": 'chuyen_khoan' nếu là màn hình ngân hàng / VietQR / Napas / Internet Banking; 'tien_mat' nếu là phiếu thu tiền mặt đóng dấu; 'khac' nếu khác.
+7. "referenceCode": Mã giao dịch, mã tham chiếu, mã FT, hoặc số hóa đơn (nếu có trên ảnh).
+8. "matchedCategoryId": So khớp với danh sách danh mục hiện có để chọn ID danh mục phù hợp nhất.
+9. "matchedCategoryName": Tên danh mục tương ứng.
+10. "aiSummary": Một câu mô tả tóm tắt ngắn gọn bằng tiếng Việt về chứng từ này (VD: "Biên nhận chuyển khoản 1.200.000đ cho Tiền điện tháng 10 qua MB Bank").`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Data,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            amount: {
+              type: Type.NUMBER,
+              description: 'Transaction amount in VND (integer)',
+            },
+            type: {
+              type: Type.STRING,
+              enum: ['thu', 'chi'],
+              description: 'Income (thu) or expense (chi)',
+            },
+            date: {
+              type: Type.STRING,
+              description: 'Date in YYYY-MM-DD format',
+            },
+            payerOrReceiver: {
+              type: Type.STRING,
+              description: 'Payer, receiver, student, or vendor name',
+            },
+            note: {
+              type: Type.STRING,
+              description: 'Transaction content or note',
+            },
+            referenceCode: {
+              type: Type.STRING,
+              description: 'Bank reference code or invoice number',
+            },
+            paymentMethod: {
+              type: Type.STRING,
+              enum: ['chuyen_khoan', 'tien_mat', 'khac'],
+              description: 'Payment method',
+            },
+            matchedCategoryId: {
+              type: Type.STRING,
+              description: 'ID of matched category from existing list',
+            },
+            matchedCategoryName: {
+              type: Type.STRING,
+              description: 'Name of matched category',
+            },
+            aiSummary: {
+              type: Type.STRING,
+              description: 'Short Vietnamese summary of detected bill/receipt',
+            },
+          },
+          required: ['amount', 'type', 'date'],
+        },
+      },
+    });
+
+    const extracted = JSON.parse(response.text || '{}');
+    return res.json({ success: true, extracted });
+  } catch (err: any) {
+    console.error('Error scanning receipt with Gemini:', err);
+    return res.json({
+      success: true,
+      extracted: {
+        type: 'chi',
+        amount: 0,
+        date: new Date().toISOString().split('T')[0],
+        payerOrReceiver: '',
+        note: 'Hóa đơn / chứng từ tải lên',
+        paymentMethod: 'chuyen_khoan',
+        referenceCode: '',
+        matchedCategoryId: '',
+        matchedCategoryName: '',
+        aiSummary: 'Đã nhận hình ảnh hóa đơn. Vui lòng kiểm tra và điền số tiền trước khi lưu.',
+      },
+      warning: 'Không thể nhận diện tự động, vui lòng kiểm tra lại thông tin.',
+    });
+  }
+});
+
 // Serve frontend in dev or prod
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.npm_lifecycle_event === 'start' ||
+    __dirname.endsWith('dist');
+
+  // Locate the built frontend directory
+  const distPath = fs.existsSync(path.resolve(__dirname, 'dist', 'index.html'))
+    ? path.resolve(__dirname, 'dist')
+    : fs.existsSync(path.resolve(__dirname, 'index.html'))
+    ? __dirname
+    : path.resolve(process.cwd(), 'dist');
+
+  const indexHtmlPath = path.resolve(distPath, 'index.html');
+
+  if (isProduction && fs.existsSync(indexHtmlPath)) {
+    console.log(`Serving static production build from: ${distPath}`);
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(indexHtmlPath);
+    });
+  } else {
+    console.log('Starting Vite development middleware');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist/index.html'));
-    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

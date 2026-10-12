@@ -91,6 +91,8 @@ export function subscribeUserTransactions(
           payerOrReceiver: data.payerOrReceiver || '',
           paymentMethod: data.paymentMethod || 'tien_mat',
           referenceCode: data.referenceCode || '',
+          receiptImage: data.receiptImage || undefined,
+          receiptNote: data.receiptNote || undefined,
           createdAt: data.createdAt || Date.now(),
           mode: data.mode || (docSnap.id.includes('home') ? 'home' : 'business'),
         };

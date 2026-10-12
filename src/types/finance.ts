@@ -25,6 +25,8 @@ export interface Transaction {
   studentId?: string;
   studentName?: string;
   referenceCode?: string;
+  receiptImage?: string; // Ảnh hóa đơn / biên nhận chuyển khoản (Base64 JPEG data URL hoặc URL)
+  receiptNote?: string; // Ghi chú thêm về chứng từ / hóa đơn
   createdAt: number;
 }
 

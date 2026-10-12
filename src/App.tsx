@@ -779,6 +779,7 @@ export default function App() {
         currentMonth={currentMonth}
         categories={categories}
         onOpenAddCategory={handleOpenAddCategoryModal}
+        mode={mode}
       />
 
       {/* MODAL: Thêm / Sửa Nhanh Hạng Mục Trực Tiếp */}
